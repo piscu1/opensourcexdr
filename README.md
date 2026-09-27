@@ -1,7 +1,4 @@
-# xdr-soc-lab
-
-[![ci](https://github.com/piscu1/xdr-soc-lab/actions/workflows/ci.yml/badge.svg)](https://github.com/piscu1/xdr-soc-lab/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+# opensourcexdr
 
 An open-source XDR stack built on Proxmox, OPNsense, Suricata, Wazuh and OpenVAS. A small Python SOAR engine sits on top: it scores every alert and responds to it. It blocks the attacker's IP on the firewall, and if the score is high enough, it moves the victim VM into a quarantine VLAN.
 
