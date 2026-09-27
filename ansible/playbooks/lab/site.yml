@@ -1,0 +1,12 @@
+---
+- import_playbook: 00-bootstrap.yml
+- import_playbook: 01-common.yml
+- import_playbook: 02-hardening.yml
+- import_playbook: 03-firewall.yml
+- import_playbook: 10-wazuh-manager.yml
+- import_playbook: ../shared/suricata-wazuh.yml
+- import_playbook: 12-edge-docker-juiceshop.yml
+- import_playbook: 13-wazuh-agent-linux.yml
+- import_playbook: 14-soar-engine.yml
+- import_playbook: 20-openvas.yml
+- import_playbook: 90-validation.yml

@@ -1,0 +1,10 @@
+---
+# The lab profile is deliberately misconfigured (weak rules, vulnerable
+# services) and is kept as it was used in the thesis experiments. Everything
+# else, including all roles, is linted.
+profile: production
+exclude_paths:
+  - playbooks/lab/
+  - collections/
+warn_list:
+  - args[module]   # templated ufw policy values can't be checked statically

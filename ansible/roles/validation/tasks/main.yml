@@ -1,0 +1,37 @@
+---
+- name: Validate Firewall State
+  ansible.builtin.command: ufw status verbose
+  register: validation_ufw_status
+  changed_when: false
+
+- name: Validate Hardening (sysctl redirects)
+  ansible.builtin.command: sysctl net.ipv4.conf.all.accept_redirects
+  register: validation_sysctl_redirects
+  changed_when: false
+  failed_when: "'0' not in validation_sysctl_redirects.stdout"
+
+- name: Validate Wazuh Manager Services
+  ansible.builtin.systemd:
+    name: wazuh-manager
+  register: validation_wazuh_service
+  when: "'wazuh_managers' in group_names"
+
+- name: Assert Wazuh Manager is running
+  ansible.builtin.assert:
+    that:
+      - validation_wazuh_service.status.ActiveState == 'active'
+  when: "'wazuh_managers' in group_names"
+
+- name: Validate OpenVAS Containers
+  ansible.builtin.command: >-
+    docker ps --filter "label=com.docker.compose.project=greenbone-community-edition"
+    --filter "status=running" --format "{{ '{{' }} .Names {{ '}}' }}"
+  register: validation_openvas_containers
+  changed_when: false
+  when: "'openvas_scanners' in group_names"
+
+- name: Assert OpenVAS Containers are running
+  ansible.builtin.assert:
+    that:
+      - validation_openvas_containers.stdout_lines | length >= 5
+  when: "'openvas_scanners' in group_names"

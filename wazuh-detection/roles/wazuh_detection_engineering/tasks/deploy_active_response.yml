@@ -1,0 +1,28 @@
+---
+- name: "Ensure Active Response configuration snippet is deployed"
+  ansible.builtin.template:
+    src: active-response.conf.snippet.j2
+    dest: /var/ossec/etc/shared/active-response.conf.snippet
+    owner: root
+    group: wazuh
+    mode: '0640'
+  when: active_response_enabled | bool
+  notify: restart wazuh-manager
+
+- name: "Deploy Python SOAR Script"
+  ansible.builtin.template:
+    src: active_response_opnsense_block.py.j2
+    dest: "/var/ossec/active-response/bin/active_response_opnsense_block.py"
+    owner: root
+    group: wazuh
+    mode: '0750'
+  when: active_response_enabled | bool
+
+- name: "Ensure Chain of Custody log directory exists"
+  ansible.builtin.file:
+    path: "/var/ossec/logs/active-responses"
+    state: directory
+    owner: wazuh
+    group: wazuh
+    mode: '0750'
+  when: active_response_enabled | bool

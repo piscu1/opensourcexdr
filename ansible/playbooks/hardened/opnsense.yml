@@ -1,0 +1,149 @@
+---
+# Hardened OPNsense configuration: VLANs, aliases, outbound NAT, filter rules
+# and the Suricata to Wazuh pipeline.
+#
+# Prerequisite (one time, GUI): assign vlan0.10/20/30/40 to opt1..opt4 and
+# give each one its .1 gateway address. The OPNsense API can't assign interfaces.
+
+- name: OPNsense | hardened baseline
+  hosts: firewalls
+  gather_facts: false
+  connection: local
+
+  vars_files:
+    - vars/network.yml
+    - vars/firewall_rules.yml
+
+  module_defaults:
+    group/ansibleguy.opnsense.all:
+      firewall: "{{ ansible_host }}"
+      api_key: "{{ ansible_opnsense_key }}"
+      api_secret: "{{ ansible_opnsense_secret }}"
+      ssl_verify: "{{ opnsense_ssl_verify | default(false) }}"
+
+  pre_tasks:
+    - name: Preflight | API credentials are set
+      ansible.builtin.assert:
+        that:
+          - ansible_opnsense_key | length > 0
+          - ansible_opnsense_secret | length > 0
+        fail_msg: Export OPNSENSE_API_KEY and OPNSENSE_API_SECRET before running.
+        quiet: true
+
+  tasks:
+    - name: VLANs | create tagged interfaces on the internal trunk
+      ansibleguy.opnsense.interface_vlan:
+        description: "{{ item.key | upper }}_ZONE"
+        interface: "{{ opnsense_trunk_interface | default('vtnet1') }}"
+        vlan: "{{ item.value.vlan }}"
+        state: present
+      loop: "{{ zones | dict2items }}"
+      loop_control:
+        label: "VLAN {{ item.value.vlan }}"
+
+    - name: Aliases | zone networks
+      ansibleguy.opnsense.alias:
+        name: "{{ item.value.alias }}"
+        type: network
+        content: ["{{ item.value.cidr }}"]
+        description: "{{ item.value.description }}"
+        reload: false
+      loop: "{{ zones | dict2items }}"
+      loop_control:
+        label: "{{ item.value.alias }}"
+
+    - name: Aliases | networks used by the rules
+      ansibleguy.opnsense.alias:
+        name: "{{ item.name }}"
+        type: network
+        content: "{{ item.content }}"
+        description: "{{ item.desc }}"
+        reload: false
+      loop:
+        - name: NET_ADMIN
+          content: "{{ admin_networks }}"
+          desc: Administrator source networks
+        - name: NET_PRIVATE
+          content: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16]
+          desc: RFC 1918
+        - name: NET_LAB
+          content: "{{ zones.values() | map(attribute='cidr') | list }}"
+          desc: All lab zones
+        - name: NET_SCAN_TARGETS
+          content: "{{ [zones.core.cidr, zones.user.cidr, zones.edge.cidr] }}"
+          desc: Zones OpenVAS is allowed to scan
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Aliases | hosts
+      ansibleguy.opnsense.alias:
+        name: "{{ item.key }}"
+        type: host
+        content: ["{{ item.value }}"]
+        reload: false
+      loop: "{{ hosts_map | dict2items + [{'key': 'HOST_PROXMOX', 'value': proxmox_host}] }}"
+      loop_control:
+        label: "{{ item.key }}"
+
+    - name: Aliases | SOAR blocklist (entries are added at runtime by the SOAR engine)
+      ansibleguy.opnsense.alias:
+        name: Blocked_IPs
+        type: host
+        description: Managed by the SOAR engine, do not edit by hand
+        reload: false
+
+    - name: Aliases | ports
+      ansibleguy.opnsense.alias:
+        name: "{{ item.key }}"
+        type: port
+        content: "{{ item.value }}"
+        reload: false
+      loop: "{{ port_aliases | dict2items + [{'key': 'PORT_EDGE_PUBLISHED', 'value': edge_published_ports | map('string') | list}] }}"
+      loop_control:
+        label: "{{ item.key }}"
+
+    - name: Aliases | apply
+      ansibleguy.opnsense.reload:
+        target: alias
+
+    - name: NAT | outbound masquerade per zone
+      ansibleguy.opnsense.nat_source:
+        interface: wan
+        source_net: "{{ item.value.alias }}"
+        destination_net: any
+        target: wanip
+        description: "NAT: {{ item.value.alias }}"
+        match_fields: [description]
+        reload: false
+      loop: "{{ zones | dict2items }}"
+      loop_control:
+        label: "{{ item.value.alias }}"
+
+    - name: Filter | apply ruleset
+      ansibleguy.opnsense.rule:
+        sequence: "{{ (idx + 1) * 10 }}"
+        description: "{{ rule.desc }}"
+        interface: "{{ rule.int }}"
+        action: "{{ rule.action | default('pass') }}"
+        protocol: "{{ rule.proto | default('any') }}"
+        source_net: "{{ rule.src | default('any') }}"
+        source_invert: "{{ rule.src_not | default(false) }}"
+        destination_net: "{{ rule.dst | default('any') }}"
+        destination_invert: "{{ rule.dst_not | default(false) }}"
+        destination_port: "{{ rule.port | default('') }}"
+        log: "{{ rule.log | default(true) }}"
+        enabled: "{{ rule.enabled | default(true) }}"
+        match_fields: [description]
+        reload: false
+      loop: "{{ firewall_rules }}"
+      loop_control:
+        loop_var: rule
+        index_var: idx
+        label: "{{ rule.desc }}"
+
+    - name: Filter | apply
+      ansibleguy.opnsense.reload:
+        target: rule
+
+- name: OPNsense | Suricata IDS and log forwarding
+  ansible.builtin.import_playbook: ../shared/suricata-wazuh.yml

@@ -1,0 +1,131 @@
+---
+- name: Enterprise GPO Hardening (Zero Trust & Detection)
+  hosts: windows_dc
+  gather_facts: no
+  tasks:
+
+    - name: 1. Create 'Security Hardening' GPO
+      ansible.windows.win_powershell:
+        script: |
+          if (-not (Get-GPO -Name "SEC-Hardening-Global" -ErrorAction SilentlyContinue)) {
+            New-GPO -Name "SEC-Hardening-Global" | Out-Null
+            $Ansible.Changed = $true
+          } else { $Ansible.Changed = $false }
+
+    - name: 2. Configure PowerShell Logging (Critical for Wazuh/XDR)
+      ansible.windows.win_regedit:
+        path: "HKLM:\\Software\\Policies\\Microsoft\\Windows\\PowerShell\\ScriptBlockLogging"
+        name: "EnableScriptBlockLogging"
+        data: 1
+        type: dword
+
+    - name: 3. Disable LLMNR (Prevents MITM/Credential Theft)
+      ansible.windows.win_regedit:
+        path: "HKLM:\\Software\\Policies\\Microsoft\\Windows\\DNSClient"
+        name: "EnableMulticast"
+        data: 0
+        type: dword
+
+    - name: 4. Enforce Account Lockout Policy (Zero Trust)
+      ansible.windows.win_shell: |
+        net accounts /lockoutthreshold:5
+        net accounts /lockoutduration:30
+        net accounts /lockoutwindow:30
+
+    - name: 5. Enable Advanced Audit Policy (Enterprise SOC Standard)
+      ansible.windows.win_shell: |
+        # This ensures the local 'Auditpol' settings are enforced domain-wide
+        $GPO = "Enterprise-Security-Hardening"
+        # In a full AD environment, we would use Set-GPPrefRegistryValue or similar
+        # For this lab, we ensure the registry keys that GPOs normally set are present
+        reg add "HKLM\System\CurrentControlSet\Control\Lsa" /v "AuditBaseObjects" /t REG_DWORD /d 1 /f
+        reg add "HKLM\System\CurrentControlSet\Control\Lsa" /v "SCENoApplyLegacyAuditPolicy" /t REG_DWORD /d 1 /f
+
+    - name: 6. AppLocker - Set to Audit Mode (Zero Trust Foundation)
+      ansible.windows.win_shell: |
+        # Start the AppIDSvc (Application Identity)
+        Set-Service -Name AppIDSvc -StartupType Automatic
+        Start-Service -Name AppIDSvc
+
+    - name: 7. ENTERPRISE HARDENING - Enable LSA Protection (Credential Guard)
+      ansible.windows.win_regedit:
+        path: "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa"
+        name: "RunAsPPL"
+        data: 1
+        type: dword
+
+    - name: 8. NETWORK SECURITY - Force SMB Signing (Prevents SMB Relay)
+      ansible.windows.win_regedit:
+        path: "HKLM:\\System\\CurrentControlSet\\Services\\LanManServer\\Parameters"
+        name: "RequireSecuritySignature"
+        data: 1
+        type: dword
+
+    - name: 9. DEFENDER - Attack Surface Reduction (ASR) Rules
+      ansible.windows.win_shell: |
+        # Rule: Block all Office applications from creating child processes
+        Add-MpPreference -AttackSurfaceReductionRules_Ids D4F940AB-401B-4EFC-AADC-AD5F3C50688A -AttackSurfaceReductionRules_Actions Enabled
+        # Rule: Block credential stealing from the Windows local security authority subsystem (lsass.exe)
+        Add-MpPreference -AttackSurfaceReductionRules_Ids 92E97FA1-2EDF-4476-BDD6-9DD0B4DDDC7B -AttackSurfaceReductionRules_Actions Enabled
+        # Rule: Block process creations originating from PSExec and WMI commands
+        Add-MpPreference -AttackSurfaceReductionRules_Ids D1E49DBA-022B-4AD3-AB41-56CE210317A6 -AttackSurfaceReductionRules_Actions Enabled
+
+    - name: 10. RDP HARDENING - Require NLA and High Encryption
+      ansible.windows.win_regedit:
+        path: "HKLM:\\System\\CurrentControlSet\\Control\\Terminal Server\\WinStations\\RDP-Tcp"
+        name: "{{ item.name }}"
+        data: "{{ item.data }}"
+        type: dword
+      loop:
+        - { name: "UserAuthentication", data: 1 } # Require NLA
+        - { name: "MinEncryptionLevel", data: 3 } # High Encryption
+
+    - name: 11. PRIVILEGE ESCALATION - Disable Print Spooler via Registry (GPO Equivalent)
+      ansible.windows.win_regedit:
+        path: "HKLM:\\Software\\Policies\\Microsoft\\Windows NT\\Printers"
+        name: "RegisterSpoolerRemoteRpcEndPoint"
+        data: 2 # Disabled
+        type: dword
+
+    - name: 12. CREDENTIAL PROTECTION - Disable WDigest (Prevents Clear-Text in RAM)
+      ansible.windows.win_regedit:
+        path: "HKLM:\\System\\CurrentControlSet\\Control\\SecurityProviders\\WDigest"
+        name: "UseLogonCredential"
+        data: 0
+        type: dword
+
+    - name: 13. PROTOCOL HARDENING - Restrict NTLM (Force NTLMv2 & Refuse LM)
+      ansible.windows.win_regedit:
+        path: "HKLM:\\System\\CurrentControlSet\\Control\\Lsa"
+        name: "LmCompatibilityLevel"
+        data: 5 # Send NTLMv2 response only. Refuse LM & NTLM.
+        type: dword
+
+    - name: 14. VISIBILITY - Increase Event Log Sizes (Critical for Wazuh Retention)
+      ansible.windows.win_shell: |
+        wevtutil sl Security /ms:1024000000  # 1GB Security Log
+        wevtutil sl System /ms:128000000    # 128MB System Log
+        wevtutil sl Application /ms:128000000 # 128MB App Log
+
+    - name: 15. SESSION SECURITY - Enforce Screen Lock (Zero Trust User Policy)
+      ansible.windows.win_regedit:
+        path: "HKCU:\\Control Panel\\Desktop"
+        name: "{{ item.name }}"
+        data: "{{ item.data }}"
+        type: string
+      loop:
+        - { name: "ScreenSaveActive", data: "1" }
+        - { name: "ScreenSaverIsSecure", data: "1" }
+        - { name: "ScreenSaveTimeOut", data: "900" } # 15 Minutes
+
+    - name: 16. ACCOUNT HARDENING - Rename and Disable Guest Account
+      ansible.windows.win_shell: |
+        net user guest /active:no
+        wmic useraccount where name='Guest' rename 'SEC-Guest-Disabled'
+
+    - name: 17. NETWORK HARDENING - Disable IPv6 (Optional, reduces attack surface)
+      ansible.windows.win_regedit:
+        path: "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Tcpip6\\Parameters"
+        name: "DisabledComponents"
+        data: 255
+        type: dword

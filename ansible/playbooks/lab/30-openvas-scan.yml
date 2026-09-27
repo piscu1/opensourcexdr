@@ -1,0 +1,109 @@
+---
+- name: Trigger OpenVAS Scan for Edge Docker
+  hosts: openvas_scanners
+  become: true
+  vars:
+    target_ip: "10.0.40.5"
+    target_name: "Edge-Docker-DVWA"
+    task_name: "Automated Scan - {{ target_name }}"
+    openvas_admin_pw: "{{ lookup('ansible.builtin.env', 'OPENVAS_ADMIN_PASSWORD') }}"
+
+  tasks:
+    - name: Ensure python3-pip is installed
+      ansible.builtin.apt:
+        name: python3-pip
+        state: present
+        update_cache: true
+
+    - name: Ensure gvm-tools is installed on the host for interaction
+      ansible.builtin.pip:
+        name: gvm-tools
+        executable: pip3
+        extra_args: --break-system-packages
+
+    - name: Wait for OpenVAS gvmd container to be running
+      ansible.builtin.command: docker ps --filter "name=gvmd" --filter "status=running" --format "{{ '{{' }} .Names {{ '}}' }}"
+      register: gvmd_container
+      until: gvmd_container.stdout != ""
+      retries: 20
+      delay: 10
+      changed_when: false
+
+    - name: Set Greenbone admin password
+      ansible.builtin.command:
+        cmd: "docker exec -u gvmd {{ gvmd_container.stdout }} gvmd --user=admin --new-password={{ openvas_admin_pw }}"
+      changed_when: false
+
+    - name: Create Python script for GVM interaction
+      ansible.builtin.copy:
+        dest: /tmp/trigger_scan.py
+        mode: '0755'
+        content: |
+          import sys
+          import time
+          from gvm.connections import UnixSocketConnection
+          from gvm.protocols.gmp import Gmp
+          from gvm.transforms import EtreeTransform
+
+          def main():
+              socket_path = '/var/lib/docker/volumes/greenbone-community-edition_gvmd_socket_vol/_data/gvmd.sock'
+              connection = UnixSocketConnection(path=socket_path)
+              transform = EtreeTransform()
+
+              try:
+                  with Gmp(connection=connection, transform=transform) as gmp:
+                      gmp.authenticate('admin', '{{ openvas_admin_pw }}')
+
+                      targets = gmp.get_targets(filter='name={{ target_name }}')
+                      target_id = None
+                      for t in targets.xpath('//target'):
+                          if t.find('name').text == '{{ target_name }}':
+                              target_id = t.get('id')
+                              break
+
+                      if not target_id:
+                          res = gmp.create_target(name='{{ target_name }}', hosts=['{{ target_ip }}'])
+                          target_id = res.get('id')
+                          print(f"Created target: {target_id}")
+                      else:
+                          print(f"Target already exists: {target_id}")
+
+                      configs = gmp.get_scan_configs(filter='name=Full and Fast')
+                      config_id = configs.xpath('//config')[0].get('id')
+
+                      scanners = gmp.get_scanners(filter='name=OpenVAS Default')
+                      scanner_id = scanners.xpath('//scanner')[0].get('id')
+
+                      tasks = gmp.get_tasks(filter='name={{ task_name }}')
+                      task_id = None
+                      for t in tasks.xpath('//task'):
+                          if t.find('name').text == '{{ task_name }}':
+                              task_id = t.get('id')
+                              break
+
+                      if not task_id:
+                          res = gmp.create_task(name='{{ task_name }}', config_id=config_id, target_id=target_id, scanner_id=scanner_id)
+                          task_id = res.get('id')
+                          print(f"Created task: {task_id}")
+                      else:
+                          print(f"Task already exists: {task_id}")
+
+                      gmp.start_task(task_id)
+                      print(f"Started task: {task_id}")
+
+              except Exception as e:
+                  print(f"Error: {e}")
+                  sys.exit(1)
+
+          if __name__ == '__main__':
+              main()
+
+    - name: Execute scan trigger on host
+      ansible.builtin.command:
+        cmd: "python3 /tmp/trigger_scan.py"
+      register: scan_trigger_output
+      failed_when: "'Error' in scan_trigger_output.stdout"
+
+    - name: Show Scan Trigger Results
+      ansible.builtin.debug:
+        var: scan_trigger_output.stdout_lines

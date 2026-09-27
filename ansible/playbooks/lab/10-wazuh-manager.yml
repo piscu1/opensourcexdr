@@ -1,0 +1,6 @@
+---
+- name: Configure Wazuh manager
+  hosts: wazuh_managers
+  become: true
+  roles:
+    - wazuh_manager

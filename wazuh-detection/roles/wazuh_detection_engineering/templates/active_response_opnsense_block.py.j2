@@ -1,0 +1,87 @@
+#!/usr/bin/env python3
+import sys
+import json
+import logging
+import requests
+import datetime
+import urllib3
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+OPNSENSE_API_KEY = "{{ ansible_opnsense_key | default('YOUR_KEY') }}"
+OPNSENSE_API_SECRET = "{{ ansible_opnsense_secret | default('YOUR_SECRET') }}"
+OPNSENSE_URL = "https://{{ opnsense_ip | default('10.0.10.1') }}/api/firewall/alias_util"
+ALIAS_NAME = "SOAR_QUARANTINE"
+
+LOG_FILE = "/var/ossec/logs/active-responses/opnsense_block_chain_of_custody.jsonl"
+
+def log_custody(action, srcip, rule_id, rule_level, decision, reason, api_result="not_called"):
+    record = {
+        "timestamp_utc": datetime.datetime.utcnow().isoformat() + "Z",
+        "action": action,
+        "srcip": srcip,
+        "rule_id": rule_id,
+        "rule_level": rule_level,
+        "decision": decision,
+        "reason": reason,
+        "opnsense_api_result": api_result
+    }
+    with open(LOG_FILE, "a") as f:
+        f.write(json.dumps(record) + "\n")
+
+def main():
+    input_str = sys.stdin.readline()
+    try:
+        alert = json.loads(input_str)
+    except json.JSONDecodeError:
+        sys.exit(1)
+
+    parameters = alert.get("parameters", {})
+    alert_data = parameters.get("alert", {})
+    rule = alert_data.get("rule", {})
+    rule_id = rule.get("id", "unknown")
+    rule_level = rule.get("level", 0)
+
+    srcip = alert_data.get("data", {}).get("srcip")
+    if not srcip:
+        srcip = alert_data.get("data", {}).get("src_ip")
+
+    action = parameters.get("command", "add")
+
+    if not srcip:
+        log_custody(action, "unknown", rule_id, rule_level, "skipped", "No source IP found in alert")
+        sys.exit(0)
+
+    never_block = ["10.0.10.1", "10.0.10.5", "10.0.10.6", "10.0.20.5"]
+    if srcip in never_block:
+        log_custody(action, srcip, rule_id, rule_level, "skipped", "IP is in never_block list")
+        sys.exit(0)
+
+    try:
+        if action == "add":
+            endpoint = f"{OPNSENSE_URL}/add/{ALIAS_NAME}"
+            payload = {"address": srcip}
+        elif action == "delete":
+            endpoint = f"{OPNSENSE_URL}/delete/{ALIAS_NAME}"
+            payload = {"address": srcip}
+        else:
+            sys.exit(0)
+
+        response = requests.post(
+            endpoint,
+            json=payload,
+            auth=(OPNSENSE_API_KEY, OPNSENSE_API_SECRET),
+            verify=False,
+            timeout=10
+        )
+
+        if response.status_code == 200:
+            log_custody(action, srcip, rule_id, rule_level, "blocked" if action=="add" else "unblocked", "API call successful", "success")
+        else:
+            log_custody(action, srcip, rule_id, rule_level, "failed", f"API returned {response.status_code}", "failure")
+
+    except Exception as e:
+        log_custody(action, srcip, rule_id, rule_level, "failed", str(e), "failure")
+
+if __name__ == "__main__":
+    main()

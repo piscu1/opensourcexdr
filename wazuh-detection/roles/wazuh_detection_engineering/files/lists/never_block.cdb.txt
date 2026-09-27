@@ -1,0 +1,6 @@
+# Never block these IPs with SOAR automation
+# Format: IP:description
+10.0.10.1:gateway_never_block
+10.0.10.5:wazuh_never_block
+10.0.10.6:scanner_never_block
+10.0.20.5:dc_never_block

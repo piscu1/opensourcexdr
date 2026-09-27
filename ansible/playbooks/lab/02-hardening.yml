@@ -1,0 +1,6 @@
+---
+- name: Apply Linux hardening
+  hosts: wazuh_managers,openvas_scanners
+  become: true
+  roles:
+    - linux_hardening

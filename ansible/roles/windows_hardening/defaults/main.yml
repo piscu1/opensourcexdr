@@ -1,0 +1,23 @@
+---
+# Networks allowed to reach WinRM (Ansible) on the host.
+windows_hardening_admin_networks:
+  - 192.168.1.0/24
+
+# Extra inbound firewall rules for the host role, e.g. AD services on a DC.
+# Each item: { name, port, protocol, remote }
+windows_hardening_firewall_rules: []
+
+# Attack Surface Reduction rules, set to block (1). Audit is 2.
+windows_hardening_asr_rules:
+  # Block credential stealing from lsass.exe
+  - 9E6C4E1F-7D60-472F-BA1A-A39EF669E4B2
+  # Block process creations from PSExec and WMI commands
+  - D1E49DBA-022B-4AD3-AB41-56CE210317A6
+  # Block Office applications from creating child processes
+  - D4F940AB-401B-4EFC-AADC-AD5F3C50688A
+  # Block executable content from email client and webmail
+  - BE9BA2D9-53EA-4CDC-84E5-9B1EEEE46550
+  # Block persistence through WMI event subscription
+  - E6DB77E5-3DF2-4CF1-B95A-636979351E5B
+
+windows_hardening_screen_lock_seconds: 900

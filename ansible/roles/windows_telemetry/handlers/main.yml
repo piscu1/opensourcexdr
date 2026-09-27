@@ -1,0 +1,5 @@
+---
+- name: Reload Sysmon configuration
+  ansible.windows.win_command: >-
+    C:\Windows\Sysmon64.exe -c "{{ windows_telemetry_dir }}\sysmonconfig.xml"
+  changed_when: true

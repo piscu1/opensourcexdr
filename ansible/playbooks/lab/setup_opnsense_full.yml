@@ -1,0 +1,27 @@
+---
+# Lab profile: OPNsense with the intentionally weak ruleset used in the thesis
+# experiments. For a deployable configuration use playbooks/hardened/opnsense.yml.
+
+- name: VLANs
+  ansible.builtin.import_playbook: opnsense/00-setup-vlans.yml
+
+- name: Outbound NAT
+  ansible.builtin.import_playbook: opnsense/01-setup-nat.yml
+
+- name: Aliases
+  ansible.builtin.import_playbook: opnsense/02-setup-aliases.yml
+
+- name: WAN and global rules
+  ansible.builtin.import_playbook: opnsense/03-setup-firewall-wan.yml
+
+- name: VLAN 10 (security)
+  ansible.builtin.import_playbook: opnsense/04-setup-firewall-vlan10.yml
+
+- name: VLAN 20 (core)
+  ansible.builtin.import_playbook: opnsense/05-setup-firewall-vlan20.yml
+
+- name: VLAN 30 (users)
+  ansible.builtin.import_playbook: opnsense/06-setup-firewall-vlan30.yml
+
+- name: VLAN 40 (edge)
+  ansible.builtin.import_playbook: opnsense/07-setup-firewall-vlan40.yml

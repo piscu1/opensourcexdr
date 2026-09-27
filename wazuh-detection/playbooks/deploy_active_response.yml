@@ -1,0 +1,12 @@
+---
+- name: "Deploy Wazuh Active Response / SOAR"
+  hosts: wazuh_managers
+  become: true
+  gather_facts: true
+
+  vars:
+    active_response_enabled: true
+
+  tasks:
+    - name: "Include Active Response Deployment Tasks"
+      include_tasks: roles/wazuh_detection_engineering/tasks/deploy_active_response.yml

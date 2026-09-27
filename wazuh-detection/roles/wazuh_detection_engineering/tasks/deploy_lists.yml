@@ -1,0 +1,33 @@
+---
+- name: "Deploy CDB text lists"
+  ansible.builtin.copy:
+    src: "lists/{{ item }}"
+    dest: "{{ wazuh_lists_path }}/{{ item }}"
+    owner: root
+    group: wazuh
+    mode: '0640'
+  loop:
+    - approved_scanners.cdb.txt
+    - critical_assets.cdb.txt
+    - trusted_internal_hosts.cdb.txt
+    - never_block.cdb.txt
+    - lab_assets.cdb.txt
+  notify: restart wazuh-manager
+
+- name: "Find makelists tool"
+  ansible.builtin.shell: "ls /var/ossec/bin/*makelists* 2>/dev/null || which ossec-makelists || which wazuh-makelists"
+  register: makelists_path
+  ignore_errors: true
+  changed_when: false
+
+- name: "Compile CDB lists if tool found"
+  ansible.builtin.command: "{{ makelists_path.stdout }}"
+  register: makelists_result
+  when: makelists_path.rc == 0 and makelists_path.stdout != ""
+  changed_when: "'Added' in makelists_result.stdout or 'Updated' in makelists_result.stdout"
+  notify: restart wazuh-manager
+
+- name: "Warn if makelists tool not found"
+  ansible.builtin.debug:
+    msg: "WARNING: CDB compilation tool (makelists) not found. Wazuh might fail to load lists if they are not pre-compiled."
+  when: makelists_path.rc != 0 or makelists_path.stdout == ""

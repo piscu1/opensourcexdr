@@ -1,0 +1,8 @@
+---
+- name: "Deploy Wazuh Detection Engineering Assets"
+  hosts: wazuh_managers
+  become: true
+  gather_facts: true
+
+  roles:
+    - role: wazuh_detection_engineering

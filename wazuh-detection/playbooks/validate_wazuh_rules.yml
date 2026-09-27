@@ -1,0 +1,9 @@
+---
+- name: "Validate Wazuh Rules"
+  hosts: wazuh_managers
+  become: true
+  tasks:
+    - name: "Check XML syntax"
+      ansible.builtin.command: "/var/ossec/bin/wazuh-logtest -t"
+      register: logtest_check
+      changed_when: false

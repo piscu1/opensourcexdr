@@ -1,0 +1,30 @@
+---
+- name: Setup Windows 10 Client (The Victim)
+  hosts: windows_clients
+  gather_facts: yes
+  vars:
+    wazuh_manager_ip: "10.0.10.5"
+    sysmon_config_url: "https://raw.githubusercontent.com/SwiftOnSecurity/sysmon-config/master/sysmonconfig-export.xml"
+
+  tasks:
+    - name: 1. MONITORING - Install Sysmon (SwiftOnSecurity)
+      ansible.windows.win_shell: |
+        $dest = "C:\Windows\sysmonconfig.xml"
+        Invoke-WebRequest -Uri "{{ sysmon_config_url }}" -OutFile $dest
+      ignore_errors: yes 
+
+    - name: 2. AUDITING - Enable Advanced Audit Policies (For Wazuh)
+      ansible.windows.win_shell: |
+        auditpol /set /subcategory:"Process Creation" /success:enable /failure:enable
+        auditpol /set /subcategory:"Logon" /success:enable /failure:enable
+
+    - name: 3. WAZUH - Install Agent
+      ansible.windows.win_package:
+        path: "https://packages.wazuh.com/4.x/windows/wazuh-agent-4.7.2-1.msi"
+        arguments: 'ADDRESS="{{ wazuh_manager_ip }}" /q'
+        state: present
+
+    - name: 4. ACTIVE RESPONSE - Deploy Forensic Script
+      ansible.windows.win_copy:
+        src: "{{ inventory_dir }}/../../soar-python/active-response/forensic_dump.ps1"
+        dest: "C:\\Program Files (x86)\\ossec-agent\\active-response\\bin\\forensic_dump.ps1"

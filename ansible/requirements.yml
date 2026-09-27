@@ -1,0 +1,10 @@
+---
+collections:
+  - name: ansibleguy.opnsense
+    version: 1.2.16
+  - name: ansible.posix
+  - name: ansible.windows
+  - name: community.docker
+  - name: community.general
+  - name: community.windows
+  - name: microsoft.ad

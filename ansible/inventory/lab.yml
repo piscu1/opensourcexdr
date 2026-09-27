@@ -1,0 +1,49 @@
+---
+all:
+  vars:
+    ansible_user: ansible
+    ansible_become: true
+    ansible_python_interpreter: /usr/bin/python3
+
+    lab_gateway_ip: "10.0.10.1"
+    management_subnet: "192.168.1.0/24"
+    opnsense_ip: "10.0.10.1"
+
+  children:
+    wazuh_managers:
+      hosts:
+        wazuh-manager-01:
+          ansible_host: 10.0.10.5
+          hostname: wazuh-manager-01
+
+    openvas_scanners:
+      hosts:
+        openvas-01:
+          ansible_host: 10.0.10.6
+          hostname: openvas-01
+          openvas_admin_pw: "{{ lookup('ansible.builtin.env', 'OPENVAS_ADMIN_PASSWORD') }}"
+
+    edge:
+      hosts:
+        edge-docker:
+          ansible_host: 10.0.40.5
+          hostname: edge-docker
+      vars:
+        lab_gateway_ip: "10.0.40.1"
+
+    windows:
+      vars:
+        ansible_user: Administrator
+        ansible_password: "{{ lookup('ansible.builtin.env', 'WINDOWS_ADMIN_PASSWORD') }}"
+        ansible_connection: winrm
+        ansible_winrm_server_cert_validation: ignore
+        ansible_become: false
+      children:
+        windows_dc:
+          hosts:
+            Windows-DC-01:
+              ansible_host: 10.0.20.5
+        windows_clients:
+          hosts:
+            Windows-Client-01:
+              ansible_host: 10.0.30.5

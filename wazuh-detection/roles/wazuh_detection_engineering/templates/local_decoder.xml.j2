@@ -1,0 +1,10 @@
+<!--
+  Academic Purpose:
+  Custom decoder to extract fields from OPNsense Suricata EVE logs
+  if the default Wazuh JSON decoder fails to pull specific required fields.
+-->
+<decoder name="suricata_custom">
+  <parent>json</parent>
+  <prematch>\"event_type\":\"alert\"</prematch>
+  <plugin_decoder>JSON_Decoder</plugin_decoder>
+</decoder>

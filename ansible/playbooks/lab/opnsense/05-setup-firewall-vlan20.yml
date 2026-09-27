@@ -1,0 +1,164 @@
+---
+- name: "VLAN 20 (PROD_CORE): Crown Jewel Isolation"
+  hosts: firewalls
+  gather_facts: false
+  connection: local
+
+  vars:
+    api_url: "https://{{ ansible_host }}/api/firewall/filter"
+
+  module_defaults:
+    uri:
+      user: "{{ ansible_opnsense_key }}"
+      password: "{{ ansible_opnsense_secret }}"
+      force_basic_auth: yes
+      validate_certs: no
+      body_format: json
+
+  tasks:
+    - name: "PROD_CORE: Allow DNS to 8.8.8.8, 1.1.1.1"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "pass"
+            interface: "opt2"
+            quick: "1"
+            protocol: "UDP,TCP"
+            destination_net: "8.8.8.8,1.1.1.1"
+            destination_port: "53"
+            log: "1"
+            description: "MGMT: Restricted DNS Access"
+
+    - name: "PROD_CORE: Allow Outbound NTP/Web"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "pass"
+            interface: "opt2"
+            quick: "1"
+            protocol: "TCP,UDP"
+            destination_net: "any"
+            destination_port: "123,80,443"
+            log: "1"
+            description: "MGMT: Essential Outbound for Updates"
+
+    - name: "PROD_CORE: Allow Outbound Wazuh Agent (UDP)"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "pass"
+            interface: "opt2"
+            quick: "1"
+            protocol: "UDP"
+            destination_net: "10.0.10.5"
+            destination_port: "1514"
+            log: "1"
+            description: "SEC: Allow PROD to Wazuh Manager (UDP)"
+
+    - name: "PROD_CORE: Allow Outbound Wazuh Agent (TCP)"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "pass"
+            interface: "opt2"
+            quick: "1"
+            protocol: "TCP"
+            destination_net: "10.0.10.5"
+            destination_port: "1514"
+            log: "1"
+            description: "SEC: Allow PROD to Wazuh Manager (TCP)"
+
+    - name: "PROD_CORE: Allow Outbound Wazuh Enrollment"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "pass"
+            interface: "opt2"
+            quick: "1"
+            protocol: "TCP"
+            destination_net: "10.0.10.5"
+            destination_port: "1515"
+            log: "1"
+            description: "SEC: Allow PROD to Wazuh Manager (Enrollment)"
+
+    - name: "PROD_CORE: Anti-Spoofing Protection"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "block"
+            interface: "opt2"
+            quick: "1"
+            log: "1"
+            source_net: "NET_AD_ZONE"
+            source_not: "1"
+            description: "ZT: Anti-Spoofing PROD_CORE"
+
+    - name: "Allow Broad RPC for Admin Convenience (Sloppy)"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "pass"
+            interface: "opt2"
+            quick: "1"
+            protocol: "TCP"
+            source_net: "NET_USER_ZONE"
+            destination_net: "SRV_AD_DC"
+            destination_port: "1024-65535"
+            log: "1"
+            description: "EXP: Dynamic RPC ports for AD (Risk: Lateral Movement/WMI)"
+
+    - name: "Allow Domain Controller to Edge (Sloppy)"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "pass"
+            interface: "opt2"
+            quick: "1"
+            protocol: "any"
+            source_net: "SRV_AD_DC"
+            destination_net: "NET_EDGE_ZONE"
+            log: "1"
+            description: "EXP: DC Access to Edge for 'Patch Management' (Risk: Reverse Shell)"
+
+    - name: "PROD_CORE: Block Internet Egress (Default)"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "block"
+            interface: "opt2"
+            quick: "0"
+            log: "1"
+            destination_net: "any"
+            description: "ZT: PROD_CORE Internet Egress Block"
+
+    - name: "Apply PROD_CORE Firewall Changes"
+      uri:
+        url: "{{ api_url }}/apply"
+        method: POST

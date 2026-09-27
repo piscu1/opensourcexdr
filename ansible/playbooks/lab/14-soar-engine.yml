@@ -1,0 +1,6 @@
+---
+- name: Deploy SOAR Engine
+  hosts: wazuh_managers
+  become: true
+  roles:
+    - soar_engine

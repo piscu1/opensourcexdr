@@ -1,0 +1,8 @@
+---
+- name: Deploy Wazuh Agent to Linux Hosts
+  hosts: edge
+  become: true
+  vars:
+    wazuh_manager_ip: "10.0.10.5"
+  roles:
+    - wazuh_agent

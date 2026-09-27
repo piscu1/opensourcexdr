@@ -1,0 +1,25 @@
+---
+windows_telemetry_dir: C:\ProgramData\SecurityTooling
+
+windows_telemetry_sysmon_url: https://download.sysinternals.com/files/Sysmon.zip
+windows_telemetry_sysmon_config_url: https://raw.githubusercontent.com/SwiftOnSecurity/sysmon-config/master/sysmonconfig-export.xml
+
+windows_telemetry_wazuh_manager: 10.0.10.5
+# Keep this at or below the manager version.
+windows_telemetry_wazuh_agent_version: 4.7.2-1
+windows_telemetry_wazuh_agent_group: default
+
+windows_telemetry_audit_subcategories:
+  - Process Creation
+  - Logon
+  - Logoff
+  - Account Lockout
+  - Special Logon
+  - User Account Management
+  - Security Group Management
+  - Credential Validation
+  - Kerberos Authentication Service
+  - Kerberos Service Ticket Operations
+  - Audit Policy Change
+  - Sensitive Privilege Use
+  - Scheduled Task

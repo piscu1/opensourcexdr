@@ -1,0 +1,9 @@
+---
+- name: "Deploy local Wazuh rules from template"
+  ansible.builtin.template:
+    src: local_rules.xml.j2
+    dest: "{{ wazuh_rules_path }}"
+    owner: root
+    group: wazuh
+    mode: '0640'
+  notify: restart wazuh-manager

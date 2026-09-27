@@ -1,0 +1,56 @@
+---
+- name: Deploy Vulnerable Windows Domain Controller (lab.local)
+  hosts: windows_dc
+  gather_facts: yes
+  vars:
+    domain_name: "lab.local"
+    safe_mode_password: "Password123!"
+    wazuh_manager_ip: "10.0.10.5"
+
+  tasks:
+    - name: 1. Install AD-Domain-Services
+      win_feature:
+        name: AD-Domain-Services
+        include_management_tools: yes
+        state: present
+
+    - name: 2. Promote server to Domain Controller (New Forest)
+      microsoft.ad.domain:
+        dns_domain_name: "{{ domain_name }}"
+        safe_mode_password: "{{ safe_mode_password }}"
+        install_dns: yes
+      register: ad_promotion
+
+    - name: 3. Reboot after promotion
+      win_reboot:
+      when: ad_promotion.reboot_required
+
+    - name: 4. WEAK POLICY - Disable Password Complexity
+      ansible.windows.win_shell: |
+        secedit /export /cfg C:\temp\policy.inf
+        (Get-Content C:\temp\policy.inf) -replace "PasswordComplexity = 1", "PasswordComplexity = 0" | Set-Content C:\temp\policy.inf
+        (Get-Content C:\temp\policy.inf) -replace "MinimumPasswordLength = 7", "MinimumPasswordLength = 0" | Set-Content C:\temp\policy.inf
+        secedit /configure /db $env:windir\security\local.sdb /cfg C:\temp\policy.inf /areas SECURITYPOLICY
+      ignore_errors: yes
+
+    - name: 5. ENABLE LEGACY - Ensure Print Spooler is running (Exploit Vector)
+      ansible.windows.win_service:
+        name: Spooler
+        start_mode: auto
+        state: started
+
+    - name: 6. ENABLE LEGACY - Ensure SMBv1 is enabled (Lateral Movement)
+      ansible.windows.win_feature:
+        name: FS-SMB1
+        state: present
+      register: smbv1_install
+
+    - name: 7. MONITORING - Install Wazuh Agent
+      ansible.windows.win_package:
+        path: "https://packages.wazuh.com/4.x/windows/wazuh-agent-4.7.2-1.msi"
+        arguments: 'ADDRESS="{{ wazuh_manager_ip }}" /q'
+        state: present
+
+    - name: 8. Reboot for SMBv1 if needed
+      win_reboot:
+      when: smbv1_install.reboot_required

@@ -1,0 +1,6 @@
+---
+- name: Configure host firewalls
+  hosts: wazuh_managers,openvas_scanners
+  become: true
+  roles:
+    - firewall_ufw

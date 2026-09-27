@@ -1,0 +1,9 @@
+---
+- name: "Deploy local Wazuh decoders from template"
+  ansible.builtin.template:
+    src: local_decoder.xml.j2
+    dest: "{{ wazuh_decoders_path }}"
+    owner: root
+    group: wazuh
+    mode: '0640'
+  notify: restart wazuh-manager

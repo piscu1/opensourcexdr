@@ -1,0 +1,73 @@
+<group name="zero_trust_lab,suricata,ids,network,">
+
+  <rule id="100000" level="3">
+    <decoded_as>json</decoded_as>
+    <field name="timestamp">\.+</field>
+    <field name="event_type">alert</field>
+    <description>Suricata IDS alert received from OPNsense</description>
+    <group>suricata,ids,network,</group>
+  </rule>
+
+  <rule id="100101" level="10">
+    <if_sid>100000</if_sid>
+    <match>Nmap|ET SCAN|GPL SCAN|SCAN Potential</match>
+    <description>Possible network reconnaissance detected by Suricata: $(src_ip) -> $(dest_ip)</description>
+    <mitre>
+      <id>T1595</id>
+      <id>T1046</id>
+    </mitre>
+    <group>recon,scan,mitre_discovery,</group>
+  </rule>
+
+  <rule id="100102" level="4">
+    <if_sid>100101</if_sid>
+    <list field="src_ip" lookup="match_key">etc/lists/approved_scanners</list>
+    <description>Authorized OpenVAS scan detected and severity reduced: $(src_ip) -> $(dest_ip)</description>
+    <group>authorized_scan,openvas,false_positive_control,</group>
+  </rule>
+
+  <rule id="100201" level="12">
+    <if_sid>100000</if_sid>
+    <match>ET EXPLOIT|EXPLOIT|CVE-</match>
+    <list field="dest_ip" lookup="match_key">etc/lists/critical_assets</list>
+    <description>Exploit attempt against critical asset: $(src_ip) -> $(dest_ip)</description>
+    <mitre>
+      <id>T1210</id>
+      <id>T1190</id>
+    </mitre>
+    <group>exploit,critical_asset,high_risk,</group>
+  </rule>
+
+  <rule id="100301" level="14">
+    <if_sid>100000</if_sid>
+    <match>ET TROJAN|MALWARE|C2|CNC|Command and Control|Botnet</match>
+    <description>Possible malware/C2 network communication detected: $(src_ip) -> $(dest_ip)</description>
+    <mitre>
+      <id>T1071</id>
+      <id>T1105</id>
+    </mitre>
+    <group>malware,c2,soar_candidate,</group>
+  </rule>
+
+</group>
+
+<group name="zero_trust_lab,opnsense,firewall,segmentation,">
+  <rule id="100401" level="4">
+    <decoded_as>json</decoded_as>
+    <field name="program">filterlog</field>
+    <field name="action">block</field>
+    <description>OPNsense Firewall default-deny blocked traffic</description>
+    <group>opnsense,firewall,default_deny,</group>
+  </rule>
+
+  <rule id="100402" level="13">
+    <if_sid>100401</if_sid>
+    <match>10.0.40.</match>
+    <description>Segmentation Violation: Blocked traffic from EDGE_ZONE to internal infrastructure</description>
+    <mitre>
+      <id>T1046</id>
+      <id>T1021</id>
+    </mitre>
+    <group>segmentation_violation,edge_to_core,critical,</group>
+  </rule>
+</group>

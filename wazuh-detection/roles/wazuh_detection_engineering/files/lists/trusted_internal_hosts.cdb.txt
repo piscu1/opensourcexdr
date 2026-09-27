@@ -1,0 +1,6 @@
+# Trusted infrastructure hosts
+# Format: IP:description
+10.0.20.5:domain_controller
+10.0.10.1:opnsense_gateway
+10.0.10.5:wazuh_manager
+10.0.10.6:openvas_scanner

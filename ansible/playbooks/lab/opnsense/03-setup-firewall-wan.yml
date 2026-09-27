@@ -1,0 +1,180 @@
+---
+- name: "Global Firewall Hardening Baseline and External Entry Points"
+  hosts: firewalls
+  gather_facts: false
+  connection: local
+
+  vars:
+    api_url: "https://{{ ansible_host }}/api/firewall/filter"
+
+  module_defaults:
+    uri:
+      user: "{{ ansible_opnsense_key }}"
+      password: "{{ ansible_opnsense_secret }}"
+      force_basic_auth: yes
+      validate_certs: no
+      body_format: json
+
+  tasks:
+    - name: "SOAR: Ensure Blocked_IPs Alias exists"
+      ansibleguy.opnsense.alias:
+        firewall: "{{ ansible_host }}"
+        api_key: "{{ ansible_opnsense_key }}"
+        api_secret: "{{ ansible_opnsense_secret }}"
+        ssl_verify: false
+        name: "Blocked_IPs"
+        type: "host"
+        content: ["127.0.0.1"]
+        description: "SOAR Automated IP Blocking"
+        state: present
+
+    - name: "SOAR: Add WAN Enforcer Rule (First Rule)"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "block"
+            interface: "wan"
+            quick: "1"
+            direction: "in"
+            protocol: "any"
+            source_net: "Blocked_IPs"
+            log: "1"
+            description: "SOAR: Automated Blocked_IPs Enforcer"
+
+    - name: "Allow WAN RDP to Edge for 'Vendor' (Sloppy)"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "pass"
+            interface: "wan"
+            quick: "1"
+            protocol: "TCP"
+            source_net: "any"
+            destination_net: "SRV_EDGE_DOCKER"
+            destination_port: "3389"
+            log: "1"
+            description: "EXP: Vendor RDP access for maintenance (Risk: Brute Force)"
+
+    - name: "Allow WAN SSH to Edge for 'Devs' (Sloppy)"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "pass"
+            interface: "wan"
+            quick: "1"
+            protocol: "TCP"
+            source_net: "any"
+            destination_net: "SRV_EDGE_DOCKER"
+            destination_port: "22"
+            log: "1"
+            description: "EXP: SSH Access for Remote Devs (Risk: Credential Access)"
+
+    - name: "Allow WAN access to Wazuh UI for Remote Admins (Sloppy)"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "pass"
+            interface: "wan"
+            quick: "1"
+            protocol: "TCP"
+            source_net: "any"
+            destination_net: "SRV_WAZUH_MGR"
+            destination_port: "443"
+            log: "1"
+            description: "EXP: WAN access to Wazuh UI for Remote Admins (Risk: Credential Theft)"
+
+    - name: "Allow WAN SSH to SEC Zone for 'Management' (Sloppy)"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "pass"
+            interface: "wan"
+            quick: "1"
+            protocol: "TCP"
+            source_net: "any"
+            destination_net: "NET_SEC_ZONE"
+            destination_port: "22"
+            log: "1"
+            description: "CONVENIENCE: Admin SSH to SEC Zone (Risk: Credential Access)"
+
+    - name: "Allow WAN SSH to Gateway from Management (Fix)"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "pass"
+            interface: "wan"
+            quick: "1"
+            protocol: "TCP"
+            source_net: "192.168.1.0/24"
+            destination_net: "wanip"
+            destination_port: "22"
+            log: "1"
+            description: "MGMT: SSH Access to Gateway"
+
+    - name: "Allow WAN HTTP to Juice Shop from Management (Fix)"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "pass"
+            interface: "wan"
+            quick: "1"
+            protocol: "TCP"
+            source_net: "192.168.1.0/24"
+            destination_net: "SRV_EDGE_DOCKER"
+            destination_port: "80"
+            log: "1"
+            description: "EXP: Management access to Juice Shop"
+
+    - name: "Global Allow ICMP (Ping) to All"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "pass"
+            interface: "wan,opt1,opt2,opt3,opt4"
+            quick: "1"
+            protocol: "ICMP"
+            log: "1"
+            description: "Global ICMP Allow (Experimental Recon Fuel)"
+
+    - name: "Global Block WAN SSH to Firewall"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "block"
+            interface: "wan"
+            quick: "1"
+            log: "1"
+            destination_port: "22"
+            description: "Global Block WAN SSH Access to Gateway"
+
+    - name: "Apply Global Firewall Changes"
+      uri:
+        url: "{{ api_url }}/apply"
+        method: POST

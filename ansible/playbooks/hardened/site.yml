@@ -1,0 +1,20 @@
+---
+# Hardened profile, full deployment in dependency order.
+#
+#   ansible-playbook playbooks/hardened/site.yml
+#
+# Required environment: OPNSENSE_API_KEY, OPNSENSE_API_SECRET,
+# WINDOWS_ADMIN_PASSWORD, OPENVAS_ADMIN_PASSWORD, AD_DSRM_PASSWORD,
+# AD_JOIN_USER, AD_JOIN_PASSWORD, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID.
+
+- name: Network
+  ansible.builtin.import_playbook: opnsense.yml
+
+- name: Linux hosts and security stack
+  ansible.builtin.import_playbook: linux.yml
+
+- name: Domain controller
+  ansible.builtin.import_playbook: windows-dc.yml
+
+- name: Windows endpoints
+  ansible.builtin.import_playbook: windows-client.yml

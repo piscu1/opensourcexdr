@@ -1,0 +1,30 @@
+---
+- name: "OPNsense Global NAT Configuration (Hybrid Outbound)"
+  hosts: firewalls
+  gather_facts: false
+  connection: local
+
+  vars:
+    internal_networks:
+      - "NET_SEC_ZONE"
+      - "NET_AD_ZONE"
+      - "NET_USER_ZONE"
+      - "NET_EDGE_ZONE"
+
+  tasks:
+    - name: "NAT: Create Outbound Masquerade Rules"
+      ansibleguy.opnsense.nat_source:
+        firewall: "{{ ansible_host }}"
+        api_key: "{{ ansible_opnsense_key }}"
+        api_secret: "{{ ansible_opnsense_secret }}"
+        ssl_verify: false
+        interface: "wan"
+        source_net: "{{ item }}"
+        destination_net: "any"
+        target: "wanip"
+        description: "ZT: Outbound NAT for {{ item }}"
+        log: true
+        match_fields:
+          - description
+        state: present
+      loop: "{{ internal_networks }}"

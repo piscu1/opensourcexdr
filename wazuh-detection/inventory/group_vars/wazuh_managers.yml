@@ -1,0 +1,18 @@
+---
+wazuh_manager_ip: "10.0.10.5"
+opnsense_ip: "10.0.10.1"
+openvas_ip: "10.0.10.6"
+domain_controller_ip: "10.0.20.5"
+windows_client_ip: "10.0.30.5"
+edge_docker_ip: "10.0.40.5"
+
+wazuh_rules_path: "/var/ossec/etc/rules/local_rules.xml"
+wazuh_decoders_path: "/var/ossec/etc/decoders/local_decoder.xml"
+wazuh_lists_path: "/var/ossec/etc/lists"
+wazuh_bin_path: "/var/ossec/bin"
+
+ansible_opnsense_key: "{{ lookup('ansible.builtin.env', 'OPNSENSE_API_KEY') }}"
+ansible_opnsense_secret: "{{ lookup('ansible.builtin.env', 'OPNSENSE_API_SECRET') }}"
+
+active_response_enabled: true
+active_response_block_duration_seconds: 3600

@@ -1,0 +1,17 @@
+---
+- name: "Rollback Wazuh Rules"
+  hosts: wazuh_managers
+  become: true
+  tasks:
+    - name: "Find latest backup"
+      ansible.builtin.shell: "ls -t /var/ossec/backups/local_rules.xml.* | head -1"
+      register: latest_backup
+      changed_when: false
+
+    - name: "Restore backup"
+      ansible.builtin.copy:
+        src: "{{ latest_backup.stdout }}"
+        dest: "/var/ossec/etc/rules/local_rules.xml"
+        remote_src: true
+      when: latest_backup.stdout != ""
+      notify: restart wazuh-manager

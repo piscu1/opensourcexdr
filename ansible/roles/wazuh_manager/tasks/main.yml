@@ -1,0 +1,132 @@
+---
+- name: Allow Wazuh Dashboard from management subnet
+  community.general.ufw:
+    rule: allow
+    port: '443'
+    proto: tcp
+    src: "{{ management_subnet | default('10.0.10.0/24') }}"
+
+- name: Allow Wazuh Agent communication (TCP)
+  community.general.ufw:
+    rule: allow
+    port: '1514'
+    proto: tcp
+    src: "{{ item }}"
+  loop: "{{ wazuh_agent_networks | default(['any']) }}"
+
+- name: Allow Wazuh Agent communication (UDP)
+  community.general.ufw:
+    rule: allow
+    port: '1514'
+    proto: udp
+    src: "{{ item }}"
+  loop: "{{ wazuh_agent_networks | default(['any']) }}"
+
+- name: Allow Wazuh Agent enrollment
+  community.general.ufw:
+    rule: allow
+    port: '1515'
+    proto: tcp
+    src: "{{ item }}"
+  loop: "{{ wazuh_agent_networks | default(['any']) }}"
+
+- name: Allow Syslog from OPNsense Gateway
+  community.general.ufw:
+    rule: allow
+    port: '514'
+    proto: udp
+    src: "{{ opnsense_ip | default('10.0.10.1') }}"
+
+- name: Check if Wazuh manager is installed
+  ansible.builtin.stat:
+    path: /var/ossec/etc/ossec.conf
+  register: wazuh_manager_wazuh_conf
+
+- name: Remove corrupted installer if it exists
+  ansible.builtin.file:
+    path: /root/wazuh-install.sh
+    state: absent
+  when: not wazuh_manager_wazuh_conf.stat.exists
+
+- name: Download Wazuh All-in-One Installer
+  ansible.builtin.get_url:
+    url: https://packages.wazuh.com/4.14/wazuh-install.sh
+    dest: /root/wazuh-install.sh
+    mode: '0755'
+  when: not wazuh_manager_wazuh_conf.stat.exists
+
+- name: Execute Wazuh Installer
+  ansible.builtin.command: bash /root/wazuh-install.sh -a -i
+  args:
+    creates: /var/ossec/etc/ossec.conf
+  register: wazuh_manager_installer_result
+  when: not wazuh_manager_wazuh_conf.stat.exists
+
+- name: Configure Syslog listener for OPNsense
+  ansible.builtin.blockinfile:
+    path: /var/ossec/etc/ossec.conf
+    insertbefore: "</ossec_config>"
+    marker: "<!-- {mark} ANSIBLE MANAGED BLOCK SYSLOG -->"
+    content: |
+      <remote>
+        <connection>syslog</connection>
+        <port>514</port>
+        <protocol>udp</protocol>
+        <allowed-ips>{{ opnsense_ip | default('10.0.10.1') }}</allowed-ips>
+      </remote>
+  when: wazuh_manager_wazuh_conf.stat.exists or (wazuh_manager_installer_result is defined and wazuh_manager_installer_result.changed)
+  notify: Restart Wazuh Manager
+
+- name: Add custom OPNsense Suricata rules
+  ansible.builtin.blockinfile:
+    path: /var/ossec/etc/rules/local_rules.xml
+    marker: "<!-- {mark} ANSIBLE MANAGED BLOCK SURICATA -->"
+    content: |
+      <group name="local,suricata,suricata_custom,">
+        <rule id="100500" level="8">
+          <match>suricata</match>
+          <description>OPNsense Suricata IDS alert detected</description>
+          <mitre>
+            <id>T1046</id>
+          </mitre>
+        </rule>
+
+        <rule id="100501" level="10">
+          <if_sid>100500</if_sid>
+          <match>ET MALWARE|MALWARE|Trojan|C2|Command and Control</match>
+          <description>High-priority Suricata malware or C2 indicator from OPNsense</description>
+          <mitre>
+            <id>T1071</id>
+          </mitre>
+        </rule>
+      </group>
+
+- name: Add OPNsense Firewall rules
+  ansible.builtin.blockinfile:
+    path: /var/ossec/etc/rules/local_rules.xml
+    marker: "<!-- {mark} ANSIBLE MANAGED BLOCK FIREWALL -->"
+    content: |
+      <group name="local,opnsense,firewall,">
+        <rule id="100600" level="3">
+          <decoded_as>json</decoded_as>
+          <match>filterlog</match>
+          <description>OPNsense firewall event</description>
+        </rule>
+
+        <rule id="100601" level="7">
+          <if_sid>100600</if_sid>
+          <field name="event_type">alert</field>
+          <description>OPNsense firewall alert</description>
+        </rule>
+
+        <rule id="100602" level="10">
+          <if_sid>100601</if_sid>
+          <field name="src_ip">^10\.0\.40\.</field>
+          <description>Segmentation Violation: Blocked traffic from EDGE_ZONE (Untrusted)</description>
+          <mitre>
+            <id>T1046</id>
+          </mitre>
+        </rule>
+      </group>
+  notify: Restart Wazuh Manager
+  when: wazuh_manager_wazuh_conf.stat.exists or (wazuh_manager_installer_result is defined and wazuh_manager_installer_result.changed)

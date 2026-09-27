@@ -1,0 +1,85 @@
+---
+- name: Deploy DVWA Docker target on Edge VLAN
+  hosts: edge
+  become: true
+  gather_facts: true
+
+  vars:
+    dvwa_container_name: "dvwa"
+    dvwa_image: "vulnerables/web-dvwa"
+    dvwa_host_port: "80"
+    dvwa_container_port: "80"
+    dvwa_data_dir: "/opt/dvwa"
+    docker_packages:
+      - docker.io
+      - docker-compose-v2
+      - python3-docker
+
+  pre_tasks:
+    - name: Assert this playbook is only used on the intended host
+      ansible.builtin.assert:
+        that:
+          - inventory_hostname == "edge-docker"
+        fail_msg: "Refusing to continue to prevent accidental deployment of DVWA elsewhere."
+
+  tasks:
+    - name: Update apt package cache
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Install Docker runtime packages
+      ansible.builtin.apt:
+        name: "{{ docker_packages }}"
+        state: present
+
+    - name: Enable and start Docker service
+      ansible.builtin.systemd:
+        name: docker
+        enabled: true
+        state: started
+
+    - name: Create DVWA working directory
+      ansible.builtin.file:
+        path: "{{ dvwa_data_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Deploy Docker Compose file
+      ansible.builtin.template:
+        src: edge-docker-dvwa-compose.yml.j2
+        dest: "{{ dvwa_data_dir }}/docker-compose.yml"
+        mode: '0644'
+
+    - name: Pull and Run DVWA via Docker Compose
+      ansible.builtin.command:
+        cmd: docker compose up -d
+        chdir: "{{ dvwa_data_dir }}"
+      register: compose_output
+      changed_when: "'Started' in compose_output.stdout or 'Created' in compose_output.stdout"
+
+    - name: Ensure UFW is disabled for experiment purposes
+      community.general.ufw:
+        state: disabled
+
+    - name: Validate DVWA container is running
+      ansible.builtin.command:
+        cmd: docker ps --filter "name={{ dvwa_container_name }}" --format "{% raw %}{{.Status}}{% endraw %}"
+      register: docker_status
+      changed_when: false
+
+    - name: Assert DVWA container is Up
+      ansible.builtin.assert:
+        that:
+          - "'Up' in docker_status.stdout"
+        fail_msg: "DVWA container is not running."
+
+  post_tasks:
+    - name: Print final status
+      ansible.builtin.debug:
+        msg:
+          - "DVWA is now RUNNING and INTENTIONALLY VULNERABLE."
+          - "UFW allows TCP/{{ dvwa_host_port }}."
+          - "Target: http://{{ ansible_host }}/"

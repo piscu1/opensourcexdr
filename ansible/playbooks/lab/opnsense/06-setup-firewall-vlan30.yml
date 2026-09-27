@@ -1,0 +1,192 @@
+---
+- name: "VLAN 30 (PROD_USER): Enterprise Zero Trust Ruleset"
+  hosts: firewalls
+  gather_facts: false
+  connection: local
+
+  vars:
+    api_url: "https://{{ ansible_host }}/api/firewall/filter"
+
+  module_defaults:
+    uri:
+      user: "{{ ansible_opnsense_key }}"
+      password: "{{ ansible_opnsense_secret }}"
+      force_basic_auth: yes
+      validate_certs: no
+      body_format: json
+
+  tasks:
+    - name: "PROD_USER: Allow DNS to 8.8.8.8, 1.1.1.1"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "pass"
+            interface: "opt3"
+            quick: "1"
+            protocol: "UDP,TCP"
+            destination_net: "8.8.8.8,1.1.1.1"
+            destination_port: "53"
+            log: "1"
+            description: "MGMT: Restricted DNS Access"
+
+    - name: "PROD_USER: Allow Outbound NTP/Web"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "pass"
+            interface: "opt3"
+            quick: "1"
+            protocol: "TCP,UDP"
+            destination_net: "any"
+            destination_port: "123,80,443"
+            log: "1"
+            description: "MGMT: Outbound Management Traffic"
+
+    - name: "PROD_USER: Allow Outbound Wazuh Agent (UDP)"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "pass"
+            interface: "opt3"
+            quick: "1"
+            protocol: "UDP"
+            destination_net: "10.0.10.5"
+            destination_port: "1514"
+            log: "1"
+            description: "SEC: Allow USER to Wazuh Manager (UDP)"
+
+    - name: "PROD_USER: Allow Outbound Wazuh Agent (TCP)"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "pass"
+            interface: "opt3"
+            quick: "1"
+            protocol: "TCP"
+            destination_net: "10.0.10.5"
+            destination_port: "1514"
+            log: "1"
+            description: "SEC: Allow USER to Wazuh Manager (TCP)"
+
+    - name: "PROD_USER: Allow Outbound Wazuh Enrollment"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "pass"
+            interface: "opt3"
+            quick: "1"
+            protocol: "TCP"
+            destination_net: "10.0.10.5"
+            destination_port: "1515"
+            log: "1"
+            description: "SEC: Allow USER to Wazuh Manager (Enrollment)"
+
+    - name: "PROD_USER: Allow DNS to DC"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "pass"
+            interface: "opt3"
+            quick: "1"
+            protocol: "any"
+            destination_net: "10.0.20.5"
+            destination_port: "53"
+            log: "1"
+            description: "ZT: Allow DNS to Domain Controller"
+
+    - name: "PROD_USER: Allow Full access to DC (Sloppy)"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "pass"
+            interface: "opt3"
+            quick: "1"
+            protocol: "any"
+            destination_net: "10.0.20.5"
+            log: "1"
+            description: "EXP: Internal unrestricted access to DC"
+
+    - name: "PROD_USER: Anti-Spoofing Protection"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "block"
+            interface: "opt3"
+            quick: "1"
+            log: "1"
+            source_net: "NET_USER_ZONE"
+            source_not: "1"
+            description: "ZT: Anti-Spoofing PROD_USER"
+
+    - name: "Allow Broad AD Access (Sloppy)"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "pass"
+            interface: "opt3"
+            quick: "1"
+            protocol: "any"
+            destination_net: "NET_AD_ZONE"
+            log: "1"
+            description: "EXP: Broad AD access for troubleshooting (Risk: Lateral Movement)"
+
+    - name: "Allow ICMP to All Internal (Sloppy)"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "pass"
+            interface: "opt3"
+            quick: "1"
+            protocol: "ICMP"
+            destination_net: "10.0.0.0/8"
+            log: "1"
+            description: "EXP: Internal Ping allowed for 'Diagnostics' (Risk: Internal Recon)"
+
+    - name: "PROD_USER: Block Access to Edge Zone"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "block"
+            interface: "opt3"
+            quick: "1"
+            log: "1"
+            destination_net: "NET_EDGE_ZONE"
+            description: "ZT: Block User to Edge Movement"
+
+    - name: "Apply PROD_USER Firewall Changes"
+      uri:
+        url: "{{ api_url }}/apply"
+        method: POST

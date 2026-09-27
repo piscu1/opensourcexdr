@@ -1,0 +1,6 @@
+---
+- name: Apply common Linux baseline
+  hosts: wazuh_managers,openvas_scanners,edge
+  become: true
+  roles:
+    - common

@@ -1,0 +1,6 @@
+---
+- name: Run validation checks
+  hosts: wazuh_managers,openvas_scanners
+  become: true
+  roles:
+    - validation

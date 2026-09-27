@@ -1,0 +1,84 @@
+---
+# Hardened Linux hosts: baseline, CIS-style hardening and host firewall on
+# every Linux VM (including the DMZ host), then the security stack.
+
+- name: Linux | preflight
+  hosts: wazuh_managers:openvas_scanners:edge
+  gather_facts: false
+  roles:
+    - bootstrap_check
+
+- name: Linux | baseline and hardening (all hosts)
+  hosts: wazuh_managers:openvas_scanners:edge
+  become: true
+  vars_files:
+    - vars/network.yml
+  vars:
+    management_subnet: "{{ admin_networks | first }}"
+    ssh_hardening_enabled: true
+  roles:
+    - common
+    - linux_hardening
+    - firewall_ufw
+
+- name: Linux | Wazuh manager
+  hosts: wazuh_managers
+  become: true
+  vars_files:
+    - vars/network.yml
+  vars:
+    management_subnet: "{{ admin_networks | first }}"
+    wazuh_agent_networks: "{{ zones.values() | map(attribute='cidr') | list }}"
+    # SOAR talks to the firewall on its VLAN 10 address, not the WAN one
+    soar_opnsense_host: "{{ firewall_sec_ip }}"
+  roles:
+    - wazuh_manager
+    - soar_engine
+
+- name: Linux | OpenVAS
+  hosts: openvas_scanners
+  become: true
+  vars_files:
+    - vars/network.yml
+  vars:
+    management_subnet: "{{ admin_networks | first }}"
+    openvas_admin_pw: "{{ lookup('ansible.builtin.env', 'OPENVAS_ADMIN_PASSWORD') }}"
+  roles:
+    - openvas
+
+- name: Linux | DMZ host (agent only, no demo workloads)
+  hosts: edge
+  become: true
+  vars:
+    wazuh_agent_docker_monitoring: false
+  roles:
+    - wazuh_agent
+
+- name: Linux | verify hardening
+  hosts: wazuh_managers:openvas_scanners:edge
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Read effective sshd configuration
+      ansible.builtin.command: sshd -T
+      register: sshd_effective
+      changed_when: false
+
+    - name: Assert key-only SSH and no root login
+      ansible.builtin.assert:
+        that:
+          - "'passwordauthentication no' in sshd_effective.stdout"
+          - "'permitrootlogin no' in sshd_effective.stdout"
+        quiet: true
+
+    - name: Read UFW status
+      ansible.builtin.command: ufw status verbose
+      register: ufw_status
+      changed_when: false
+
+    - name: Assert host firewall is active with default deny
+      ansible.builtin.assert:
+        that:
+          - "'Status: active' in ufw_status.stdout"
+          - "'deny (incoming)' in ufw_status.stdout"
+        quiet: true

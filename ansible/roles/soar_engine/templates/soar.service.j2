@@ -1,0 +1,18 @@
+[Unit]
+Description=Zero Trust SOAR Engine
+After=network.target wazuh-manager.service
+Requires=wazuh-manager.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/soar
+EnvironmentFile=/opt/soar/.env
+ExecStart=/usr/bin/python3 -u /opt/soar/soar_engine.py
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/soar-engine.log
+StandardError=append:/var/log/soar-engine.log
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,13 @@
+---
+services:
+  juice-shop:
+    image: "{{ juiceshop_image }}"
+    container_name: "{{ juiceshop_container_name }}"
+    restart: unless-stopped
+    ports:
+      - "{{ juiceshop_host_port }}:{{ juiceshop_container_port }}"
+    labels:
+      academic.lab.role: "vulnerable-web-target"
+      academic.lab.vlan: "edge"
+      academic.lab.warning: "intentionally-vulnerable"
+      academic.lab.tooling: "openvas-wazuh-opnsense"

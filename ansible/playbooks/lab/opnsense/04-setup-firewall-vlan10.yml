@@ -1,0 +1,153 @@
+---
+- name: "VLAN 10 (SEC_ZONE): Hardened XDR Infrastructure"
+  hosts: firewalls
+  gather_facts: false
+  connection: local
+
+  vars:
+    api_url: "https://{{ ansible_host }}/api/firewall/filter"
+
+  module_defaults:
+    uri:
+      user: "{{ ansible_opnsense_key }}"
+      password: "{{ ansible_opnsense_secret }}"
+      force_basic_auth: yes
+      validate_certs: no
+      body_format: json
+
+  tasks:
+    - name: "SEC_ZONE: Allow Outbound DNS (8.8.8.8, 1.1.1.1)"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "pass"
+            interface: "opt1"
+            quick: "1"
+            protocol: "UDP,TCP"
+            destination_net: "8.8.8.8,1.1.1.1"
+            destination_port: "53"
+            log: "1"
+            description: "MGMT: Specific DNS Access"
+
+    - name: "SEC_ZONE: Allow Outbound HTTP/HTTPS"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "pass"
+            interface: "opt1"
+            quick: "1"
+            protocol: "TCP"
+            destination_net: "any"
+            destination_port: "80,443"
+            log: "1"
+            description: "MGMT: Outbound Web Access (Updates)"
+
+    - name: "SEC_ZONE: Allow Outbound NTP"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "pass"
+            interface: "opt1"
+            quick: "1"
+            protocol: "UDP"
+            destination_net: "any"
+            destination_port: "123"
+            log: "1"
+            description: "MGMT: Time Sync"
+
+    - name: "SEC_ZONE: Anti-Spoofing Protection"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "block"
+            interface: "opt1"
+            quick: "1"
+            log: "1"
+            source_net: "NET_SEC_ZONE"
+            source_not: "1"
+            description: "ZT: Anti-Spoofing SEC_ZONE"
+
+    - name: "SEC_ZONE: Allow Wazuh Manager Control Plane"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "pass"
+            interface: "opt1"
+            quick: "1"
+            direction: "in"
+            protocol: "TCP"
+            destination_net: "SRV_WAZUH_MGR"
+            destination_port: "1514-1515"
+            log: "1"
+            description: "XDR: Wazuh Manager Control Plane"
+
+    - name: "SEC_ZONE: Allow Syslog Inbound"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "pass"
+            interface: "opt1"
+            quick: "1"
+            direction: "in"
+            protocol: "UDP"
+            destination_net: "SRV_WAZUH_MGR"
+            destination_port: "514"
+            log: "1"
+            description: "XDR: OPNsense Syslog Inbound"
+
+    - name: "Allow OpenVAS Broad Internal Scanning (Sloppy)"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "pass"
+            interface: "opt1"
+            quick: "1"
+            direction: "in"
+            protocol: "any"
+            source_net: "SRV_OPENVAS"
+            destination_net: "10.0.0.0/8"
+            log: "1"
+            description: "EXP: OpenVAS Authorized Broad Scanning (Risk: Internal Recon)"
+
+    - name: "SEC_ZONE: Allow SOAR to Proxmox SSH"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "pass"
+            interface: "opt1"
+            quick: "1"
+            protocol: "TCP"
+            source_net: "10.0.10.5"
+            destination_net: "192.168.1.7"
+            destination_port: "22"
+            log: "1"
+            description: "MGMT: Allow SOAR to Proxmox SSH"
+
+    - name: "Apply SEC_ZONE Firewall Changes"
+      uri:
+        url: "{{ api_url }}/apply"
+        method: POST

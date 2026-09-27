@@ -1,0 +1,222 @@
+---
+# Hardened OPNsense ruleset.
+#
+# Model: default deny on every interface. Each zone gets only the flows it
+# needs, internet egress is limited to web/NTP and excludes private ranges,
+# and every zone ends with a logged block so denied traffic shows up in
+# Wazuh. Rules are matched on their description, so re-running the playbook
+# updates them in place instead of adding duplicates.
+#
+# Fields: desc, int, action (default pass), proto (default any), src, src_not,
+# dst, dst_not, port, log (default true).
+
+firewall_rules:
+
+  # WAN ----------------------------------------------------------------------
+  - desc: "WAN: SOAR blocklist"
+    int: [wan]
+    action: block
+    src: Blocked_IPs
+
+  - desc: "WAN: admin access to security zone"
+    int: [wan]
+    proto: TCP
+    src: NET_ADMIN
+    dst: NET_SEC_ZONE
+    port: PORT_ADMIN
+
+  - desc: "WAN: admin management (SSH, WinRM) to all zones"
+    int: [wan]
+    proto: TCP
+    src: NET_ADMIN
+    dst: NET_LAB
+    port: PORT_MGMT
+
+  - desc: "WAN: published DMZ services"
+    int: [wan]
+    proto: TCP
+    dst: SRV_EDGE
+    port: PORT_EDGE_PUBLISHED
+    enabled: "{{ edge_published_ports | length > 0 }}"
+
+  # All internal zones ---------------------------------------------------------
+  - desc: "INT: SOAR blocklist (lateral movement)"
+    int: [opt1, opt2, opt3, opt4]
+    action: block
+    src: Blocked_IPs
+
+  # SEC (VLAN 10) --------------------------------------------------------------
+  - desc: "SEC: anti-spoofing"
+    int: [opt1]
+    action: block
+    src: NET_SEC_ZONE
+    src_not: true
+
+  - desc: "SEC: DNS to firewall"
+    int: [opt1]
+    proto: TCP/UDP
+    dst: opt1ip
+    port: "53"
+
+  - desc: "SEC: SOAR to OPNsense API"
+    int: [opt1]
+    proto: TCP
+    src: SRV_WAZUH_MGR
+    dst: opt1ip
+    port: "443"
+
+  - desc: "SEC: SOAR to Proxmox SSH (host isolation)"
+    int: [opt1]
+    proto: TCP
+    src: SRV_WAZUH_MGR
+    dst: HOST_PROXMOX
+    port: "22"
+
+  - desc: "SEC: vulnerability scanning of internal zones"
+    int: [opt1]
+    src: SRV_OPENVAS
+    dst: NET_SCAN_TARGETS
+
+  - desc: "SEC: web egress (updates, feeds)"
+    int: [opt1]
+    proto: TCP
+    src: NET_SEC_ZONE
+    dst: NET_PRIVATE
+    dst_not: true
+    port: PORT_WEB
+
+  - desc: "SEC: NTP egress"
+    int: [opt1]
+    proto: UDP
+    src: NET_SEC_ZONE
+    dst: NET_PRIVATE
+    dst_not: true
+    port: "123"
+
+  - desc: "SEC: default deny"
+    int: [opt1]
+    action: block
+
+  # CORE (VLAN 20) -------------------------------------------------------------
+  - desc: "CORE: anti-spoofing"
+    int: [opt2]
+    action: block
+    src: NET_CORE_ZONE
+    src_not: true
+
+  - desc: "CORE: Wazuh agent"
+    int: [opt2]
+    proto: TCP
+    src: NET_CORE_ZONE
+    dst: SRV_WAZUH_MGR
+    port: PORT_WAZUH_AGENT
+
+  - desc: "CORE: DNS forwarders to firewall"
+    int: [opt2]
+    proto: TCP/UDP
+    src: SRV_AD_DC
+    dst: opt2ip
+    port: "53"
+
+  - desc: "CORE: web egress (Windows Update)"
+    int: [opt2]
+    proto: TCP
+    src: NET_CORE_ZONE
+    dst: NET_PRIVATE
+    dst_not: true
+    port: PORT_WEB
+
+  - desc: "CORE: NTP egress (PDC emulator)"
+    int: [opt2]
+    proto: UDP
+    src: SRV_AD_DC
+    dst: NET_PRIVATE
+    dst_not: true
+    port: "123"
+
+  - desc: "CORE: default deny"
+    int: [opt2]
+    action: block
+
+  # USER (VLAN 30) -------------------------------------------------------------
+  - desc: "USER: anti-spoofing"
+    int: [opt3]
+    action: block
+    src: NET_USER_ZONE
+    src_not: true
+
+  - desc: "USER: AD services (TCP)"
+    int: [opt3]
+    proto: TCP
+    src: NET_USER_ZONE
+    dst: SRV_AD_DC
+    port: PORT_AD_TCP
+
+  - desc: "USER: AD services (UDP)"
+    int: [opt3]
+    proto: UDP
+    src: NET_USER_ZONE
+    dst: SRV_AD_DC
+    port: PORT_AD_UDP
+
+  - desc: "USER: Wazuh agent"
+    int: [opt3]
+    proto: TCP
+    src: NET_USER_ZONE
+    dst: SRV_WAZUH_MGR
+    port: PORT_WAZUH_AGENT
+
+  - desc: "USER: web egress"
+    int: [opt3]
+    proto: TCP
+    src: NET_USER_ZONE
+    dst: NET_PRIVATE
+    dst_not: true
+    port: PORT_WEB
+
+  - desc: "USER: default deny"
+    int: [opt3]
+    action: block
+
+  # EDGE (VLAN 40) -------------------------------------------------------------
+  - desc: "EDGE: anti-spoofing"
+    int: [opt4]
+    action: block
+    src: NET_EDGE_ZONE
+    src_not: true
+
+  - desc: "EDGE: Wazuh agent"
+    int: [opt4]
+    proto: TCP
+    src: NET_EDGE_ZONE
+    dst: SRV_WAZUH_MGR
+    port: PORT_WAZUH_AGENT
+
+  - desc: "EDGE: DNS to firewall"
+    int: [opt4]
+    proto: TCP/UDP
+    src: NET_EDGE_ZONE
+    dst: opt4ip
+    port: "53"
+
+  - desc: "EDGE: block lateral movement"
+    int: [opt4]
+    action: block
+    src: NET_EDGE_ZONE
+    dst: NET_PRIVATE
+
+  - desc: "EDGE: web egress"
+    int: [opt4]
+    proto: TCP
+    src: NET_EDGE_ZONE
+    port: PORT_WEB
+
+  - desc: "EDGE: NTP egress"
+    int: [opt4]
+    proto: UDP
+    src: NET_EDGE_ZONE
+    port: "123"
+
+  - desc: "EDGE: default deny"
+    int: [opt4]
+    action: block

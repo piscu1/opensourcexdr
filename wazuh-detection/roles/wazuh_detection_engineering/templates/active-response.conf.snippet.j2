@@ -1,0 +1,15 @@
+<!-- Academic Purpose: Defines the SOAR trigger condition in Wazuh -->
+<command>
+  <name>opnsense_block</name>
+  <executable>active_response_opnsense_block.py</executable>
+  <timeout_allowed>yes</timeout_allowed>
+</command>
+
+<active-response>
+  <!-- Triggers when a SOAR candidate rule is fired (e.g., Level 12+ from Suricata) -->
+  <command>opnsense_block</command>
+  <location>local</location>
+  <!-- The rules matching group soar_candidate -->
+  <rules_group>soar_candidate</rules_group>
+  <timeout>{{ active_response_block_duration_seconds | default(3600) }}</timeout>
+</active-response>

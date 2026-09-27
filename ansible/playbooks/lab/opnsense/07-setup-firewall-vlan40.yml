@@ -1,0 +1,183 @@
+---
+- name: "VLAN 40 (EDGE): Zero Trust Isolated Sandbox"
+  hosts: firewalls
+  gather_facts: false
+  connection: local
+
+  vars:
+    edge_net: "10.0.40.0/24"
+    dc_net: "10.0.20.0/24"
+    prod_net: "10.0.30.0/24"
+
+    api_url: "https://{{ ansible_host }}/api/firewall/filter"
+    api_auth:
+      user: "{{ ansible_opnsense_key }}"
+      password: "{{ ansible_opnsense_secret }}"
+      force_basic_auth: yes
+      validate_certs: no
+      body_format: json
+
+  tasks:
+    - name: "EDGE: Anti-Spoofing Protection"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "block"
+            interface: "opt4"
+            quick: "1"
+            log: "1"
+            source_net: "{{ edge_net }}"
+            source_not: "1"
+            description: "ZT: Anti-Spoofing EDGE"
+      args: "{{ api_auth }}"
+
+    - name: "EDGE: Allow DNS to Firewall (UDP)"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "pass"
+            interface: "opt4"
+            quick: "1"
+            protocol: "UDP"
+            destination_net: "opt4"
+            destination_port: "53"
+            log: "1"
+            description: "ZT: Forced DNS via Firewall (UDP)"
+      args: "{{ api_auth }}"
+
+    - name: "EDGE: Allow DNS to Firewall (TCP)"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "pass"
+            interface: "opt4"
+            quick: "1"
+            protocol: "TCP"
+            destination_net: "opt4"
+            destination_port: "53"
+            log: "1"
+            description: "ZT: Forced DNS via Firewall (TCP)"
+      args: "{{ api_auth }}"
+
+    - name: "EDGE: Allow HTTP Outbound"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "pass"
+            interface: "opt4"
+            quick: "1"
+            protocol: "TCP"
+            destination_net: "any"
+            destination_port: "80"
+            log: "1"
+            description: "EDGE: Allow Web Access Outbound (80)"
+      args: "{{ api_auth }}"
+
+    - name: "EDGE: Allow HTTPS Outbound"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "pass"
+            interface: "opt4"
+            quick: "1"
+            protocol: "TCP"
+            destination_net: "any"
+            destination_port: "443"
+            log: "1"
+            description: "EDGE: Allow Web Access Outbound (443)"
+      args: "{{ api_auth }}"
+
+    - name: "Allow internal testing (Interface Split)"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "pass"
+            interface: "{{ item }}"
+            quick: "1"
+            protocol: "any"
+            destination_net: "10.0.40.0/24"
+            log: "1"
+            description: "EXP: Internal unrestricted access from {{ item }}"
+      loop:
+        - "lan"
+        - "opt1"
+        - "opt2"
+        - "opt3"
+        - "opt4"
+      args: "{{ api_auth }}"
+
+    - name: "Enable access to DC for dev team"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "pass"
+            interface: "opt4"
+            quick: "1"
+            destination_net: "{{ dc_net }}"
+            log: "1"
+            description: "EXP: DC Access to Edge (Temporary debug)"
+      args: "{{ api_auth }}"
+
+    - name: "Open ports for dev team (Port Split)"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "pass"
+            interface: "opt4"
+            quick: "1"
+            protocol: "TCP"
+            destination_port: "{{ item }}"
+            log: "1"
+            description: "EXP: Open service {{ item }} for dev team"
+      loop:
+        - "22"
+        - "3389"
+        - "3306"
+        - "5432"
+        - "8080"
+      args: "{{ api_auth }}"
+
+    - name: "EDGE: Block Lateral Movement"
+      uri:
+        url: "{{ api_url }}/add_rule"
+        method: POST
+        body:
+          rule:
+            enabled: "1"
+            action: "block"
+            interface: "opt4"
+            quick: "0"
+            log: "1"
+            destination_net: "10.0.0.0/8"
+            description: "EDGE: Lateral Movement Containment"
+      args: "{{ api_auth }}"
+
+    - name: "Apply EDGE Firewall Changes"
+      uri:
+        url: "{{ api_url }}/apply"
+        method: POST
+      args: "{{ api_auth }}"

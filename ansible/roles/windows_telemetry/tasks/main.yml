@@ -1,0 +1,75 @@
+---
+# Endpoint telemetry for Wazuh: Sysmon with the SwiftOnSecurity config,
+# advanced audit policy, PowerShell logging and the Wazuh agent.
+
+- name: Create tooling directory
+  ansible.windows.win_file:
+    path: "{{ windows_telemetry_dir }}"
+    state: directory
+
+- name: Download Sysmon
+  ansible.windows.win_get_url:
+    url: "{{ windows_telemetry_sysmon_url }}"
+    dest: "{{ windows_telemetry_dir }}\\Sysmon.zip"
+
+- name: Extract Sysmon
+  community.windows.win_unzip:
+    src: "{{ windows_telemetry_dir }}\\Sysmon.zip"
+    dest: "{{ windows_telemetry_dir }}\\Sysmon"
+    creates: "{{ windows_telemetry_dir }}\\Sysmon\\Sysmon64.exe"
+
+- name: Download Sysmon configuration
+  ansible.windows.win_get_url:
+    url: "{{ windows_telemetry_sysmon_config_url }}"
+    dest: "{{ windows_telemetry_dir }}\\sysmonconfig.xml"
+  notify: Reload Sysmon configuration
+
+- name: Install Sysmon service
+  ansible.windows.win_command: >-
+    "{{ windows_telemetry_dir }}\Sysmon\Sysmon64.exe" -accepteula -i "{{ windows_telemetry_dir }}\sysmonconfig.xml"
+  args:
+    creates: C:\Windows\Sysmon64.exe
+
+- name: Enable advanced audit policy subcategories
+  ansible.windows.win_command: auditpol /set /subcategory:"{{ item }}" /success:enable /failure:enable
+  loop: "{{ windows_telemetry_audit_subcategories }}"
+  changed_when: false
+
+- name: Force advanced audit policy over legacy categories
+  ansible.windows.win_regedit:
+    path: HKLM:\System\CurrentControlSet\Control\Lsa
+    name: SCENoApplyLegacyAuditPolicy
+    data: 1
+    type: dword
+
+- name: Enable PowerShell script block logging
+  ansible.windows.win_regedit:
+    path: HKLM:\Software\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging
+    name: EnableScriptBlockLogging
+    data: 1
+    type: dword
+
+- name: Increase event log sizes so Wazuh does not miss events
+  ansible.windows.win_command: wevtutil sl {{ item.log }} /ms:{{ item.bytes }}
+  loop:
+    - { log: Security, bytes: 1073741824 }
+    - { log: System, bytes: 134217728 }
+    - { log: Application, bytes: 134217728 }
+    - { log: Microsoft-Windows-Sysmon/Operational, bytes: 268435456 }
+  changed_when: false
+
+- name: Install Wazuh agent
+  ansible.windows.win_package:
+    path: "https://packages.wazuh.com/4.x/windows/wazuh-agent-{{ windows_telemetry_wazuh_agent_version }}.msi"
+    arguments: >-
+      /q WAZUH_MANAGER="{{ windows_telemetry_wazuh_manager }}"
+      WAZUH_AGENT_GROUP="{{ windows_telemetry_wazuh_agent_group }}"
+      WAZUH_AGENT_NAME="{{ inventory_hostname }}"
+    creates_path: C:\Program Files (x86)\ossec-agent\wazuh-agent.exe
+    state: present
+
+- name: Ensure Wazuh agent service is running
+  ansible.windows.win_service:
+    name: WazuhSvc
+    start_mode: auto
+    state: started

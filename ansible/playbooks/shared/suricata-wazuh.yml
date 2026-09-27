@@ -1,0 +1,88 @@
+---
+# Suricata IDS on OPNsense with EVE JSON forwarded to Wazuh over syslog.
+# Used by both the lab and the hardened profile.
+
+- name: OPNsense | Suricata and log forwarding to Wazuh
+  hosts: firewalls
+  gather_facts: false
+  connection: local
+  become: false
+
+  vars:
+    wazuh_manager_ip: 10.0.10.5
+    opnsense_api: "https://{{ ansible_host }}/api/ids"
+    suricata_interfaces: [wan, lan, opt1, opt2, opt3, opt4]
+    suricata_rulesets:
+      - ET open/emerging-malware
+      - ET open/emerging-exploit
+      - ET open/emerging-scan
+      - ET open/threatview_CS_c2
+      - ET open/botcc
+      - ET open/emerging-worm
+      - ET open/emerging-mobile_malware
+
+  module_defaults:
+    ansible.builtin.uri:
+      user: "{{ ansible_opnsense_key }}"
+      password: "{{ ansible_opnsense_secret }}"
+      force_basic_auth: true
+      validate_certs: "{{ opnsense_ssl_verify | default(false) }}"
+      body_format: json
+      method: POST
+      status_code: 200
+    group/ansibleguy.opnsense.all:
+      firewall: "{{ ansible_host }}"
+      api_key: "{{ ansible_opnsense_key }}"
+      api_secret: "{{ ansible_opnsense_secret }}"
+      ssl_verify: "{{ opnsense_ssl_verify | default(false) }}"
+
+  tasks:
+    - name: IDS | enable Suricata with EVE syslog output
+      ansible.builtin.uri:
+        url: "{{ opnsense_api }}/settings/set"
+        body:
+          ids:
+            general:
+              enabled: "1"
+              interfaces: "{{ suricata_interfaces | join(',') }}"
+              syslog: "1"
+              syslog_eve: "1"
+              MPMAlgo: hs
+              promisc: "0"
+
+    - name: IDS | download rule sources
+      ansible.builtin.uri:
+        url: "{{ opnsense_api }}/service/updateRules"
+        body: {}
+
+    - name: IDS | enable ET Open rulesets
+      ansibleguy.opnsense.ids_ruleset:
+        description: "{{ item }}"
+        enabled: true
+      loop: "{{ suricata_rulesets }}"
+      register: suricata_ruleset_result
+      # Ruleset names change between OPNsense releases. A missing one should
+      # not stop the deployment, but it is reported below.
+      ignore_errors: true # noqa: ignore-errors
+
+    - name: IDS | report rulesets that could not be enabled
+      ansible.builtin.debug:
+        msg: "Ruleset not available on this OPNsense version: {{ item.item }}"
+      loop: "{{ suricata_ruleset_result.results | selectattr('failed', 'defined') | selectattr('failed') | list }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: IDS | apply configuration
+      ansible.builtin.uri:
+        url: "{{ opnsense_api }}/service/reconfigure"
+        body: {}
+
+    - name: Syslog | forward Suricata and filter logs to Wazuh
+      ansibleguy.opnsense.syslog:
+        target: "{{ wazuh_manager_ip }}"
+        port: 514
+        transport: udp4
+        description: "XDR: Suricata and firewall logs to Wazuh"
+        program: [suricata, filterlog]
+        state: present
+        reload: true

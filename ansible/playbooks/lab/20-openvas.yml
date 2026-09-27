@@ -1,0 +1,6 @@
+---
+- name: Configure OpenVAS scanner
+  hosts: openvas_scanners
+  become: true
+  roles:
+    - openvas

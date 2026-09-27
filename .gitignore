@@ -1,0 +1,10 @@
+.env
+*.tfvars
+!*.tfvars.example
+*.tfstate
+*.tfstate.*
+.terraform/
+__pycache__/
+.pytest_cache/
+ansible/collections/
+*.retry

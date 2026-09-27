@@ -1,0 +1,65 @@
+---
+- name: Install dependencies
+  ansible.builtin.apt:
+    name:
+      - curl
+      - gnupg
+      - apt-transport-https
+    state: present
+    update_cache: true
+- name: Add Wazuh GPG key
+  ansible.builtin.apt_key:
+    url: https://packages.wazuh.com/key/GPG-KEY-WAZUH
+    state: present
+
+- name: Add Wazuh repository
+  ansible.builtin.apt_repository:
+    repo: "deb https://packages.wazuh.com/4.x/apt/ stable main"
+    state: present
+    filename: wazuh
+
+- name: Install Wazuh Agent
+  ansible.builtin.apt:
+    name: wazuh-agent
+    state: present
+  environment:
+    WAZUH_MANAGER: "{{ wazuh_manager_ip | default('10.0.10.5') }}"
+
+- name: Install python3-docker for local monitoring
+  ansible.builtin.apt:
+    name: python3-docker
+    state: present
+  when: wazuh_agent_docker_monitoring | default(true)
+
+- name: Add wazuh user to docker group for container monitoring
+  ansible.builtin.user:
+    name: wazuh
+    groups: docker
+    append: true
+  notify: Restart Wazuh Agent
+  when: wazuh_agent_docker_monitoring | default(true)
+
+- name: Enable Docker listener and Container Logs in Wazuh Agent configuration
+  ansible.builtin.blockinfile:
+    path: /var/ossec/etc/ossec.conf
+    insertafter: '<ossec_config>'
+    marker: "  <!-- {mark} ANSIBLE MANAGED BLOCK: Docker Monitoring -->"
+    block: |
+        <wodle name="docker-listener">
+          <interval>2m</interval>
+          <run_on_start>yes</run_on_start>
+          <disabled>no</disabled>
+        </wodle>
+
+        <localfile>
+          <log_format>apache</log_format>
+          <location>/opt/dvwa/logs/access.log</location>
+        </localfile>
+  notify: Restart Wazuh Agent
+  when: wazuh_agent_docker_monitoring | default(true)
+
+- name: Ensure Wazuh Agent is started and enabled
+  ansible.builtin.service:
+    name: wazuh-agent
+    state: started
+    enabled: true

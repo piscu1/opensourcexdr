@@ -1,0 +1,6 @@
+---
+- name: Bootstrap validation for all Linux hosts
+  hosts: wazuh_managers,openvas_scanners,edge
+  become: true
+  roles:
+    - bootstrap_check

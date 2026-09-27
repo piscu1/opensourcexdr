@@ -1,0 +1,166 @@
+---
+# Windows baseline hardening, applied locally so it works on the DC and on
+# members before any GPO is in place. Mapped to the usual CIS / Microsoft
+# security baseline items.
+
+# Firewall ---------------------------------------------------------------------
+
+- name: Firewall | enable all profiles, default deny inbound
+  ansible.windows.win_powershell:
+    script: |
+      $changed = $false
+      foreach ($p in Get-NetFirewallProfile) {
+        if (-not $p.Enabled -or $p.DefaultInboundAction -ne 'Block' -or -not $p.LogBlocked) {
+          Set-NetFirewallProfile -Name $p.Name -Enabled True -DefaultInboundAction Block `
+            -DefaultOutboundAction Allow -LogBlocked True -LogMaxSizeKilobytes 16384
+          $changed = $true
+        }
+      }
+      $Ansible.Changed = $changed
+
+- name: Firewall | WinRM over HTTPS from admin networks only
+  community.windows.win_firewall_rule:
+    name: MGMT-WinRM-HTTPS
+    localport: 5986
+    protocol: tcp
+    remoteip: "{{ windows_hardening_admin_networks | join(',') }}"
+    direction: in
+    action: allow
+    profiles: [domain, private, public]
+    state: present
+    enabled: true
+
+- name: Firewall | role specific inbound rules
+  community.windows.win_firewall_rule:
+    name: "{{ item.name }}"
+    localport: "{{ item.port }}"
+    protocol: "{{ item.protocol | default('tcp') }}"
+    remoteip: "{{ item.remote | default('localsubnet') }}"
+    direction: in
+    action: allow
+    profiles: [domain, private, public]
+    state: present
+    enabled: true
+  loop: "{{ windows_hardening_firewall_rules }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+# Legacy protocols -------------------------------------------------------------
+
+- name: Protocols | disable SMBv1 server
+  ansible.windows.win_powershell:
+    script: |
+      if ((Get-SmbServerConfiguration).EnableSMB1Protocol) {
+        Set-SmbServerConfiguration -EnableSMB1Protocol $false -Force
+        $Ansible.Changed = $true
+      } else { $Ansible.Changed = $false }
+
+- name: Protocols | require SMB signing (server and client)
+  ansible.windows.win_regedit:
+    path: "{{ item }}"
+    name: RequireSecuritySignature
+    data: 1
+    type: dword
+  loop:
+    - HKLM:\System\CurrentControlSet\Services\LanManServer\Parameters
+    - HKLM:\System\CurrentControlSet\Services\LanmanWorkstation\Parameters
+
+- name: Protocols | NTLMv2 only, refuse LM and NTLM
+  ansible.windows.win_regedit:
+    path: HKLM:\System\CurrentControlSet\Control\Lsa
+    name: LmCompatibilityLevel
+    data: 5
+    type: dword
+
+- name: Protocols | disable LLMNR
+  ansible.windows.win_regedit:
+    path: HKLM:\Software\Policies\Microsoft\Windows NT\DNSClient
+    name: EnableMulticast
+    data: 0
+    type: dword
+
+- name: Protocols | disable NetBIOS over TCP/IP on all adapters
+  ansible.windows.win_powershell:
+    script: |
+      $changed = $false
+      Get-CimInstance Win32_NetworkAdapterConfiguration -Filter "IPEnabled=true" | ForEach-Object {
+        if ($_.TcpipNetbiosOptions -ne 2) {
+          Invoke-CimMethod -InputObject $_ -MethodName SetTcpipNetbios -Arguments @{ TcpipNetbiosOptions = 2 } | Out-Null
+          $changed = $true
+        }
+      }
+      $Ansible.Changed = $changed
+
+# Credential protection ---------------------------------------------------------
+
+- name: Credentials | run LSASS as a protected process
+  ansible.windows.win_regedit:
+    path: HKLM:\System\CurrentControlSet\Control\Lsa
+    name: RunAsPPL
+    data: 1
+    type: dword
+
+- name: Credentials | disable WDigest plaintext caching
+  ansible.windows.win_regedit:
+    path: HKLM:\System\CurrentControlSet\Control\SecurityProviders\WDigest
+    name: UseLogonCredential
+    data: 0
+    type: dword
+
+- name: Credentials | disable the Guest account
+  ansible.windows.win_user:
+    name: Guest
+    account_disabled: true
+
+# Services and remote access ------------------------------------------------------
+
+- name: Services | disable Print Spooler and Remote Registry
+  ansible.windows.win_service:
+    name: "{{ item }}"
+    start_mode: disabled
+    state: stopped
+  loop:
+    - Spooler
+    - RemoteRegistry
+
+- name: RDP | require NLA and high encryption
+  ansible.windows.win_regedit:
+    path: HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp
+    name: "{{ item.name }}"
+    data: "{{ item.data }}"
+    type: dword
+  loop:
+    - { name: UserAuthentication, data: 1 }
+    - { name: MinEncryptionLevel, data: 3 }
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Session | machine-wide screen lock
+  ansible.windows.win_regedit:
+    path: HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\System
+    name: InactivityTimeoutSecs
+    data: "{{ windows_hardening_screen_lock_seconds }}"
+    type: dword
+
+# Defender -----------------------------------------------------------------------
+
+- name: Defender | enable real-time protection and ASR rules
+  ansible.windows.win_powershell:
+    parameters:
+      Rules: "{{ windows_hardening_asr_rules }}"
+    script: |
+      param([string[]]$Rules)
+      $pref = Get-MpPreference
+      $changed = $false
+      if ($pref.DisableRealtimeMonitoring) {
+        Set-MpPreference -DisableRealtimeMonitoring $false
+        $changed = $true
+      }
+      foreach ($id in $Rules) {
+        $i = [array]::IndexOf(@($pref.AttackSurfaceReductionRules_Ids), $id)
+        if ($i -lt 0 -or @($pref.AttackSurfaceReductionRules_Actions)[$i] -ne 1) {
+          Add-MpPreference -AttackSurfaceReductionRules_Ids $id -AttackSurfaceReductionRules_Actions Enabled
+          $changed = $true
+        }
+      }
+      $Ansible.Changed = $changed

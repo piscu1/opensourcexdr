@@ -1,0 +1,22 @@
+---
+- name: "Ensure backup directory exists"
+  ansible.builtin.file:
+    path: "/var/ossec/backups"
+    state: directory
+    owner: root
+    group: wazuh
+    mode: '0750'
+
+- name: "Backup current Wazuh local rules"
+  ansible.builtin.copy:
+    src: "{{ wazuh_rules_path }}"
+    dest: "/var/ossec/backups/local_rules.xml.{{ ansible_date_time.iso8601_basic }}"
+    remote_src: true
+  ignore_errors: true
+
+- name: "Backup current Wazuh local decoders"
+  ansible.builtin.copy:
+    src: "{{ wazuh_decoders_path }}"
+    dest: "/var/ossec/backups/local_decoder.xml.{{ ansible_date_time.iso8601_basic }}"
+    remote_src: true
+  ignore_errors: true

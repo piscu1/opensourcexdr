@@ -1,0 +1,28 @@
+---
+- name: Verify SSH and Python availability
+  ansible.builtin.ping:
+
+- name: Wait for gateway reachability
+  ansible.builtin.command: ping -c 1 -W 1 {{ lab_gateway_ip | default('10.0.10.1') }}
+  register: bootstrap_check_ping_gateway
+  until: bootstrap_check_ping_gateway.rc == 0
+  retries: 30
+  delay: 5
+  changed_when: false
+
+- name: Ensure DNS points to lab gateway
+  ansible.builtin.copy:
+    dest: /etc/resolv.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: "nameserver {{ lab_gateway_ip | default('10.0.10.1') }}\n"
+  become: true
+
+- name: Verify DNS resolution for external packages
+  ansible.builtin.command: getent hosts packages.wazuh.com
+  register: bootstrap_check_dns_check
+  until: bootstrap_check_dns_check.rc == 0
+  retries: 10
+  delay: 5
+  changed_when: false

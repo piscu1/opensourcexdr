@@ -1,0 +1,4 @@
+# Approved vulnerability scanners
+# Format: IP:description
+10.0.10.6:openvas_authorized_scanner
+10.0.10.5:wazuh_manager

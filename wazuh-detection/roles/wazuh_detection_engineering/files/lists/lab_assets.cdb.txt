@@ -1,0 +1,8 @@
+# Lab assets with zone mapping
+# Format: IP:zone|role|criticality
+10.0.10.5:SEC_ZONE|wazuh_manager|critical
+10.0.10.6:SEC_ZONE|vulnerability_scanner|high
+10.0.20.5:PROD_CORE|domain_controller|critical
+10.0.30.5:PROD_USER|user_endpoint|medium
+10.0.40.5:EDGE_ZONE|decoy_host|medium
+10.0.10.1:PERIMETER|gateway|critical

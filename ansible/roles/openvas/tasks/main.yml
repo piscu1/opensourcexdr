@@ -1,0 +1,81 @@
+---
+- name: Allow OpenVAS Greenbone Security Assistant UI (HTTPS)
+  community.general.ufw:
+    rule: allow
+    port: '443'
+    proto: tcp
+    src: "{{ item }}"
+  loop:
+    - "{{ management_subnet | default('192.168.1.0/24') }}"
+    - "10.0.10.0/24"
+
+- name: Allow OpenVAS Greenbone Security Assistant UI (Legacy)
+  community.general.ufw:
+    rule: allow
+    port: '9392'
+    proto: tcp
+    src: "{{ item }}"
+  loop:
+    - "{{ management_subnet | default('192.168.1.0/24') }}"
+    - "10.0.10.0/24"
+
+- name: Install Docker and Docker Compose
+  ansible.builtin.apt:
+    name:
+      - docker.io
+      - docker-compose-v2
+    state: present
+    update_cache: true
+- name: Ensure Docker service is started
+  ansible.builtin.service:
+    name: docker
+    state: started
+    enabled: true
+
+- name: Create Greenbone Community Container directory
+  ansible.builtin.file:
+    path: /opt/greenbone-community-container
+    state: directory
+    mode: '0755'
+
+- name: Download Greenbone Community Container compose file
+  ansible.builtin.get_url:
+    url: https://greenbone.github.io/docs/latest/_static/docker-compose.yml
+    dest: /opt/greenbone-community-container/docker-compose.yml
+    mode: '0644'
+
+- name: Expose Greenbone UI to external interfaces
+  ansible.builtin.replace:
+    path: /opt/greenbone-community-container/docker-compose.yml
+    regexp: '127\.0\.0\.1:(\d+:\d+)'
+    replace: '\1'
+
+- name: Start Greenbone Community Edition
+  ansible.builtin.command: docker compose -p greenbone-community-edition up -d
+  args:
+    chdir: /opt/greenbone-community-container
+  register: openvas_docker_compose_up
+  changed_when: >-
+    'Started' in openvas_docker_compose_up.stdout
+    or 'Created' in openvas_docker_compose_up.stdout
+    or 'Running' not in openvas_docker_compose_up.stdout
+
+- name: Wait for gvmd to be ready
+  ansible.builtin.command: docker ps --filter "name=gvmd" --filter "status=running" --format "{{ '{{' }} .Names {{ '}}' }}"
+  register: openvas_gvmd_check
+  until: openvas_gvmd_check.stdout != ""
+  retries: 20
+  delay: 10
+  changed_when: false
+
+- name: Check that an admin password was provided
+  ansible.builtin.assert:
+    that: openvas_admin_pw | default('') | length >= 12
+    fail_msg: Set openvas_admin_pw (at least 12 characters), e.g. export OPENVAS_ADMIN_PASSWORD.
+    quiet: true
+
+- name: Set Greenbone admin password
+  ansible.builtin.command:
+    cmd: "docker exec -u gvmd greenbone-community-edition-gvmd-1 gvmd --user=admin --new-password={{ openvas_admin_pw }}"
+  changed_when: false
+  no_log: true

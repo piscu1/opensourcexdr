@@ -1,0 +1,65 @@
+---
+- name: 1. Bootstrap validation
+  hosts: edge
+  become: true
+  roles:
+    - bootstrap_check
+
+- name: 2. Apply common Linux baseline
+  hosts: edge
+  become: true
+  roles:
+    - common
+
+- name: 5. Deploy OWASP Juice Shop target
+  import_playbook: 12-edge-docker-juiceshop.yml
+
+- name: 6. Validate Edge Vector Deployment
+  hosts: edge
+  become: true
+  tasks:
+    - name: VALIDATION - Check SSH Connectivity (Ping)
+      ansible.builtin.ping:
+      register: ping_result
+
+    - name: VALIDATION - Verify DNS Resolution (Internal)
+      ansible.builtin.command: "host {{ inventory_hostname }}"
+      register: dns_internal
+      changed_when: false
+      failed_when: false
+
+    - name: VALIDATION - Verify DNS Resolution (External - google.com)
+      ansible.builtin.command: "host google.com"
+      register: dns_external
+      changed_when: false
+
+    - name: VALIDATION - Verify Docker Service Status
+      ansible.builtin.systemd:
+        name: docker
+        state: started
+      register: docker_service
+
+    - name: VALIDATION - Check Juice Shop Container Health
+      ansible.builtin.command: "docker inspect -f '{{ '{{' }} .State.Running {{ '}}' }}' juice-shop"
+      register: container_running
+      changed_when: false
+
+    - name: VALIDATION - Test Web Service Response (Localhost)
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:80"
+        method: GET
+        status_code: [200, 302, 403]
+      register: web_test
+
+    - name: VALIDATION - Summary of Results
+      ansible.builtin.debug:
+        msg:
+          - "SSH Connectivity: {{ 'Success' if ping_result.ping == 'pong' else 'Failed' }}"
+          - "External DNS: {{ 'Functional' if dns_external.rc == 0 else 'Failed' }}"
+          - "Docker Service: {{ 'Active' if docker_service.status.ActiveState == 'active' else 'Failed' }}"
+          - "Juice Shop Container: {{ 'Running' if container_running.stdout == 'true' else 'Failed' }}"
+          - "Web Service (HTTP 80): {{ 'Responding (' ~ web_test.status ~ ')' if web_test.status is defined else 'No Response' }}"
+      failed_when:
+        - ping_result.ping != 'pong'
+        - dns_external.rc != 0
+        - container_running.stdout != 'true'

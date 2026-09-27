@@ -1,0 +1,86 @@
+---
+- name: "Deploy Vulnerable Native Services to Edge VM"
+  hosts: edge
+  become: true
+
+  tasks:
+    - name: "Install vulnerable service packages"
+      ansible.builtin.apt:
+        name:
+          - apache2
+          - mysql-server
+          - postgresql
+          - xrdp
+          - sed
+        state: present
+        update_cache: yes
+
+    - name: "Configure Apache to be 'Sloppy'"
+      ansible.builtin.lineinfile:
+        path: /etc/apache2/conf-available/security.conf
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+      loop:
+        - { regexp: '^ServerTokens', line: 'ServerTokens Full' }
+        - { regexp: '^ServerSignature', line: 'ServerSignature On' }
+      notify: Restart Apache
+
+    - name: "Enable Path Traversal on Apache (Simulating CVE-like behavior)"
+      ansible.builtin.replace:
+        path: /etc/apache2/apache2.conf
+        regexp: '<Directory />\s+Options FollowSymLinks\s+AllowOverride None\s+Require all denied\s+</Directory>'
+        replace: '<Directory />\n    Options FollowSymLinks\n    AllowOverride None\n    Require all granted\n</Directory>'
+      notify: Restart Apache
+
+    - name: "Configure MySQL to listen on all interfaces"
+      ansible.builtin.replace:
+        path: /etc/mysql/mysql.conf.d/mysqld.cnf
+        regexp: '^bind-address.*'
+        replace: 'bind-address = 0.0.0.0'
+      notify: Restart MySQL
+
+    - name: "Configure MySQL to allow root from any (Vulnerable!)"
+      ansible.builtin.command:
+        cmd: "mysql -e \"UPDATE mysql.user SET Host='%' WHERE User='root'; FLUSH PRIVILEGES;\""
+      ignore_errors: yes
+
+    - name: "Configure Postgres to trust all internal connections"
+      ansible.builtin.lineinfile:
+        path: "/etc/postgresql/16/main/pg_hba.conf"
+        line: "host    all             all             0.0.0.0/0            trust"
+        insertafter: '^# IPv4 local connections:'
+      notify: Restart Postgres
+
+    - name: "Configure Postgres to listen on all interfaces"
+      ansible.builtin.lineinfile:
+        path: "/etc/postgresql/16/main/postgresql.conf"
+        regexp: "^#?listen_addresses ="
+        line: "listen_addresses = '*'"
+      notify: Restart Postgres
+
+    - name: "Ensure vulnerable services are running"
+      ansible.builtin.service:
+        name: "{{ item }}"
+        state: started
+        enabled: true
+      loop:
+        - apache2
+        - mysql
+        - postgresql
+        - xrdp
+
+  handlers:
+    - name: Restart Apache
+      ansible.builtin.service:
+        name: apache2
+        state: restarted
+
+    - name: Restart MySQL
+      ansible.builtin.service:
+        name: mysql
+        state: restarted
+
+    - name: Restart Postgres
+      ansible.builtin.service:
+        name: postgresql
+        state: restarted

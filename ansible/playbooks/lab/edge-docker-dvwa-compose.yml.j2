@@ -1,0 +1,17 @@
+---
+services:
+  dvwa:
+    image: "{{ dvwa_image }}"
+    container_name: "{{ dvwa_container_name }}"
+    restart: unless-stopped
+    ports:
+      - "{{ dvwa_host_port }}:{{ dvwa_container_port }}"
+    volumes:
+      - ./logs:/var/log/apache2
+    environment:
+      - DBMS=MySQL
+    labels:
+      academic.lab.role: "vulnerable-web-target"
+      academic.lab.vlan: "edge"
+      academic.lab.warning: "intentionally-vulnerable"
+      academic.lab.tooling: "openvas-wazuh-opnsense"

@@ -1,0 +1,62 @@
+---
+- name: "OPNsense: Provision Infrastructure Aliases"
+  hosts: firewalls
+  gather_facts: false
+  connection: local
+
+  vars:
+    networks:
+      - { name: "NET_SEC_ZONE", address: "10.0.10.0/24", desc: "Security and Management VLAN" }
+      - { name: "NET_AD_ZONE", address: "10.0.20.0/24", desc: "Active Directory / Core Assets" }
+      - { name: "NET_USER_ZONE", address: "10.0.30.0/24", desc: "Production User Endpoints" }
+      - { name: "NET_EDGE_ZONE", address: "10.0.40.0/24", desc: "Edge / DMZ / Honeypot Zone" }
+
+    assets:
+      - { name: "SRV_WAZUH_MGR", address: "10.0.10.5", desc: "Wazuh Manager" }
+      - { name: "SRV_OPENVAS", address: "10.0.10.6", desc: "OpenVAS Scanner" }
+      - { name: "SRV_AD_DC", address: "10.0.20.5", desc: "Active Directory Domain Controller" }
+      - { name: "SRV_EDGE_DOCKER", address: "10.0.40.5", desc: "Edge Web/Docker Services" }
+
+    sloppy_groups:
+      - { name: "VENDOR_REMOTE_IPS", address: "0.0.0.0/0", desc: "Simulated Vendor Support Range (Too Broad!)" }
+      - { name: "DEV_TEAM_HOME_IPS", address: "0.0.0.0/0", desc: "Temporary Dev Access (Forgotten)" }
+
+  tasks:
+    - name: "Create Network Aliases"
+      ansibleguy.opnsense.alias:
+        firewall: "{{ ansible_host }}"
+        api_key: "{{ ansible_opnsense_key }}"
+        api_secret: "{{ ansible_opnsense_secret }}"
+        ssl_verify: false
+        name: "{{ item.name }}"
+        type: "network"
+        content: ["{{ item.address }}"]
+        description: "{{ item.desc }}"
+        state: present
+      loop: "{{ networks }}"
+
+    - name: "Create Asset Aliases"
+      ansibleguy.opnsense.alias:
+        firewall: "{{ ansible_host }}"
+        api_key: "{{ ansible_opnsense_key }}"
+        api_secret: "{{ ansible_opnsense_secret }}"
+        ssl_verify: false
+        name: "{{ item.name }}"
+        type: "host"
+        content: ["{{ item.address }}"]
+        description: "{{ item.desc }}"
+        state: present
+      loop: "{{ assets }}"
+
+    - name: "Create Sloppy Aliases"
+      ansibleguy.opnsense.alias:
+        firewall: "{{ ansible_host }}"
+        api_key: "{{ ansible_opnsense_key }}"
+        api_secret: "{{ ansible_opnsense_secret }}"
+        ssl_verify: false
+        name: "{{ item.name }}"
+        type: "network"
+        content: ["{{ item.address }}"]
+        description: "{{ item.desc }}"
+        state: present
+      loop: "{{ sloppy_groups }}"

@@ -1,0 +1,39 @@
+---
+# Hardened Windows endpoint: baseline hardening, telemetry, the forensic
+# capture script for Wazuh active response, and an optional domain join.
+
+- name: Windows | endpoints
+  hosts: windows_clients
+  gather_facts: true
+  vars_files:
+    - vars/network.yml
+  vars:
+    windows_hardening_admin_networks: "{{ admin_networks }}"
+    join_domain: "{{ ad_join_domain | default(true) }}"
+    domain_name: "{{ ad_domain_name | default('corp.lab') }}"
+
+  roles:
+    - windows_hardening
+    - windows_telemetry
+
+  tasks:
+    - name: Active response | deploy forensic capture script
+      ansible.windows.win_copy:
+        src: "{{ inventory_dir }}/../../soar-python/active-response/forensic_dump.ps1"
+        dest: C:\Program Files (x86)\ossec-agent\active-response\bin\forensic_dump.ps1
+
+    - name: Domain | point DNS at the domain controller
+      ansible.windows.win_dns_client:
+        adapter_names: "*"
+        dns_servers: ["{{ hosts_map.SRV_AD_DC }}"]
+      when: join_domain | bool
+
+    - name: Domain | join
+      microsoft.ad.membership:
+        dns_domain_name: "{{ domain_name }}"
+        domain_admin_user: "{{ lookup('ansible.builtin.env', 'AD_JOIN_USER') }}@{{ domain_name }}"
+        domain_admin_password: "{{ lookup('ansible.builtin.env', 'AD_JOIN_PASSWORD') }}"
+        state: domain
+        reboot: true
+      no_log: true
+      when: join_domain | bool

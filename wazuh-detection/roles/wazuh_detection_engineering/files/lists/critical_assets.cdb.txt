@@ -1,0 +1,6 @@
+# Critical assets in the lab
+# Format: IP:description
+10.0.20.5:prod_core_domain_controller
+10.0.10.5:sec_zone_wazuh_manager
+10.0.10.1:perimeter_gateway
+10.0.10.6:sec_zone_vulnerability_scanner

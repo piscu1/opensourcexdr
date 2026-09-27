@@ -1,0 +1,90 @@
+---
+# Hardened domain controller: new forest with a real password policy,
+# baseline hardening, telemetry, and AD services open only to the user zone.
+
+- name: Windows | domain controller
+  hosts: windows_dc
+  gather_facts: true
+  vars_files:
+    - vars/network.yml
+  vars:
+    domain_name: "{{ ad_domain_name | default('corp.lab') }}"
+    domain_netbios: "{{ ad_domain_netbios | default('CORP') }}"
+    safe_mode_password: "{{ lookup('ansible.builtin.env', 'AD_DSRM_PASSWORD') }}"
+    windows_hardening_admin_networks: "{{ admin_networks }}"
+    windows_hardening_firewall_rules:
+      - { name: AD-DNS-TCP, port: 53, remote: "{{ zones.user.cidr }}" }
+      - { name: AD-DNS-UDP, port: 53, protocol: udp, remote: "{{ zones.user.cidr }}" }
+      - { name: AD-Kerberos-TCP, port: 88, remote: "{{ zones.user.cidr }}" }
+      - { name: AD-Kerberos-UDP, port: 88, protocol: udp, remote: "{{ zones.user.cidr }}" }
+      - { name: AD-NTP, port: 123, protocol: udp, remote: "{{ zones.user.cidr }}" }
+      - { name: AD-RPC-EPM, port: 135, remote: "{{ zones.user.cidr }}" }
+      - { name: AD-LDAP-TCP, port: 389, remote: "{{ zones.user.cidr }}" }
+      - { name: AD-LDAP-UDP, port: 389, protocol: udp, remote: "{{ zones.user.cidr }}" }
+      - { name: AD-SMB, port: 445, remote: "{{ zones.user.cidr }}" }
+      - { name: AD-Kpasswd-TCP, port: 464, remote: "{{ zones.user.cidr }}" }
+      - { name: AD-Kpasswd-UDP, port: 464, protocol: udp, remote: "{{ zones.user.cidr }}" }
+      - { name: AD-LDAPS, port: 636, remote: "{{ zones.user.cidr }}" }
+      - { name: AD-GC, port: "3268-3269", remote: "{{ zones.user.cidr }}" }
+      - { name: AD-RPC-Dynamic, port: "49152-65535", remote: "{{ zones.user.cidr }}" }
+
+  pre_tasks:
+    - name: Preflight | DSRM password meets policy
+      ansible.builtin.assert:
+        that: safe_mode_password | length >= 14
+        fail_msg: Export AD_DSRM_PASSWORD (14+ characters) before running.
+        quiet: true
+
+  tasks:
+    - name: AD | install AD DS role
+      ansible.windows.win_feature:
+        name: AD-Domain-Services
+        include_management_tools: true
+        state: present
+
+    - name: AD | create forest
+      microsoft.ad.domain:
+        dns_domain_name: "{{ domain_name }}"
+        domain_netbios_name: "{{ domain_netbios }}"
+        safe_mode_password: "{{ safe_mode_password }}"
+        install_dns: true
+        reboot: true
+      no_log: true
+
+    - name: AD | default domain password and lockout policy
+      ansible.windows.win_powershell:
+        script: |
+          Set-ADDefaultDomainPasswordPolicy -Identity (Get-ADDomain).DNSRoot `
+            -MinPasswordLength 14 -ComplexityEnabled $true -PasswordHistoryCount 24 `
+            -MaxPasswordAge (New-TimeSpan -Days 365) -MinPasswordAge (New-TimeSpan -Days 1) `
+            -LockoutThreshold 5 -LockoutDuration (New-TimeSpan -Minutes 15) `
+            -LockoutObservationWindow (New-TimeSpan -Minutes 15) -ReversibleEncryptionEnabled $false
+
+    - name: AD | require LDAP signing
+      ansible.windows.win_regedit:
+        path: HKLM:\System\CurrentControlSet\Services\NTDS\Parameters
+        name: LDAPServerIntegrity
+        data: 2
+        type: dword
+
+    - name: AD | DNS forwarder to the firewall resolver
+      ansible.windows.win_powershell:
+        parameters:
+          Forwarder: "{{ firewall_core_ip | default('10.0.20.1') }}"
+        script: |
+          param([string]$Forwarder)
+          $current = (Get-DnsServerForwarder).IPAddress.IPAddressToString
+          if ($current -notcontains $Forwarder) {
+            Set-DnsServerForwarder -IPAddress $Forwarder
+            $Ansible.Changed = $true
+          } else { $Ansible.Changed = $false }
+
+    # Hardening and telemetry go on after promotion, so the forest setup is
+    # not affected by the stricter firewall and protocol settings.
+    - name: Baseline | hardening
+      ansible.builtin.include_role:
+        name: windows_hardening
+
+    - name: Baseline | telemetry
+      ansible.builtin.include_role:
+        name: windows_telemetry

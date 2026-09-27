@@ -1,0 +1,18 @@
+---
+- name: "Include Backup Tasks"
+  include_tasks: backup.yml
+
+- name: "Include CDB List Deployment Tasks"
+  include_tasks: deploy_lists.yml
+
+- name: "Include ossec.conf Configuration Tasks"
+  include_tasks: configure_ossec.yml
+
+- name: "Include Decoder Deployment Tasks"
+  include_tasks: deploy_decoders.yml
+
+- name: "Include Rule Deployment Tasks"
+  include_tasks: deploy_rules.yml
+
+- name: "Include Active Response Deployment Tasks"
+  include_tasks: deploy_active_response.yml

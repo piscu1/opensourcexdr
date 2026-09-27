@@ -1,0 +1,38 @@
+---
+- name: "OPNsense Zero Trust Architecture Deployment"
+  hosts: firewalls
+  gather_facts: false
+  connection: local
+
+  tasks:
+    - name: "PHASE 1: Create VLAN Tags on Internal Trunk (vtnet1)"
+      ansibleguy.opnsense.interface_vlan:
+        firewall: "{{ inventory_hostname }}"
+        api_key: "{{ ansible_opnsense_key }}"
+        api_secret: "{{ ansible_opnsense_secret }}"
+        ssl_verify: false
+        device: "vlan0.{{ item.tag }}"
+        parent: "vtnet1"
+        tag: "{{ item.tag }}"
+        description: "{{ item.name }}"
+        state: present
+      loop:
+        - { tag: 10, name: "SEC_ZONE" }
+        - { tag: 20, name: "PROD_CORE" }
+        - { tag: 30, name: "PROD_USER" }
+        - { tag: 40, name: "EDGE_ZONE" }
+
+    - name: "PHASE 2: Create Network Alias for Segmentation"
+      ansibleguy.opnsense.alias:
+        firewall: "{{ inventory_hostname }}"
+        api_key: "{{ ansible_opnsense_key }}"
+        api_secret: "{{ ansible_opnsense_secret }}"
+        ssl_verify: false
+        name: "RFC1918_Private"
+        description: "Standard private ranges for isolation logic"
+        type: "network"
+        content:
+          - "10.0.0.0/8"
+          - "172.16.0.0/12"
+          - "192.168.0.0/16"
+        state: present

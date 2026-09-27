@@ -1,0 +1,55 @@
+---
+- name: Harden Windows Domain Controller (Zero Trust & Monitoring)
+  hosts: windows_dc
+  gather_facts: yes
+  vars:
+    sysmon_config_url: "https://raw.githubusercontent.com/SwiftOnSecurity/sysmon-config/master/sysmonconfig-export.xml"
+    wazuh_manager_ip: "10.0.10.5"
+
+  tasks:
+    - name: 1. CORE HARDENING - Disable Unnecessary Services
+      ansible.windows.win_service:
+        name: "{{ item }}"
+        start_mode: disabled
+        state: stopped
+      loop:
+        - "Spooler"
+        - "RemoteRegistry"
+
+    - name: 2. FIREWALL - Set Default Deny (Zero Trust)
+      ansible.windows.win_shell: |
+        Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled True -InboundAction Block -OutboundAction Allow
+
+    - name: 3. FIREWALL - Allow strictly necessary ports for AD/Ansible
+      community.windows.win_firewall_rule:
+        name: "{{ item.name }}"
+        localport: "{{ item.port }}"
+        action: allow
+        direction: inbound
+        protocol: "{{ item.proto | default('tcp') }}"
+        state: present
+      loop:
+        - { name: "Ansible-WinRM", port: 5986 }
+        - { name: "AD-DNS", port: 53, proto: "udp" }
+        - { name: "AD-Kerberos", port: 88 }
+        - { name: "AD-LDAP", port: 389 }
+        - { name: "AD-RPC-Endpoint-Mapper", port: 135 }
+
+    - name: 4. MONITORING - Install Sysmon (SwiftOnSecurity)
+      ansible.windows.win_shell: |
+        $dest = "C:\Windows\sysmonconfig.xml"
+        Invoke-WebRequest -Uri "{{ sysmon_config_url }}" -OutFile $dest
+      ignore_errors: yes
+
+    - name: 5. AUDITING - Enable Advanced Audit Policies (For Wazuh)
+      ansible.windows.win_shell: |
+        auditpol /set /subcategory:"Process Creation" /success:enable /failure:enable
+        auditpol /set /subcategory:"Logon" /success:enable /failure:enable
+        auditpol /set /subcategory:"File System" /success:enable /failure:enable
+        auditpol /set /subcategory:"Registry" /success:enable /failure:enable
+
+    - name: 6. WAZUH - Install Agent
+      ansible.windows.win_package:
+        path: "https://packages.wazuh.com/4.x/windows/wazuh-agent-4.7.2-1.msi"
+        arguments: 'ADDRESS="{{ wazuh_manager_ip }}" /q'
+        state: present

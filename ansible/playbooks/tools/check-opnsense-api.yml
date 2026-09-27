@@ -1,0 +1,26 @@
+---
+- name: "Debug OPNsense API Authentication"
+  hosts: firewalls
+  gather_facts: false
+  connection: local
+  become: false
+
+  tasks:
+    - name: "Attempt Authentication to System Status"
+      ansible.builtin.uri:
+        url: "https://{{ ansible_host }}/api/core/system/status"
+        method: GET
+        user: "{{ ansible_opnsense_key }}"
+        password: "{{ ansible_opnsense_secret }}"
+        force_basic_auth: true
+        validate_certs: false
+      register: auth_test
+      ignore_errors: true
+
+    - name: "Report Results"
+      ansible.builtin.debug:
+        msg:
+          - "Status Code: {{ auth_test.status | default('N/A') }}"
+          - "Message: {{ auth_test.json.message | default(auth_test.msg | default('N/A')) }}"
+          - "Key Length: {{ ansible_opnsense_key | length }}"
+          - "Secret Length: {{ ansible_opnsense_secret | length }}"

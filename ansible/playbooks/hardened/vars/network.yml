@@ -1,0 +1,63 @@
+---
+# Network model for the hardened profile. Everything the firewall rules and
+# host configs need to know about the topology lives here.
+
+# Where administrators and the Ansible control node connect from (the
+# Proxmox/home LAN on the WAN side). Only these networks get SSH, WinRM and
+# the web UIs. Note: host firewalls use the first entry.
+admin_networks:
+  - 192.168.1.0/24
+
+proxmox_host: 192.168.1.7
+
+# OPNsense address on VLAN 10, used by the SOAR engine for API calls
+firewall_sec_ip: 10.0.10.1
+
+# OPNsense interface assignment. VLAN interfaces have to be assigned to
+# opt1..opt4 once in the GUI (Interfaces > Assignments), the API can't do it.
+zones:
+  sec:
+    interface: opt1
+    vlan: 10
+    alias: NET_SEC_ZONE
+    cidr: 10.0.10.0/24
+    description: Security and management
+  core:
+    interface: opt2
+    vlan: 20
+    alias: NET_CORE_ZONE
+    cidr: 10.0.20.0/24
+    description: Active Directory
+  user:
+    interface: opt3
+    vlan: 30
+    alias: NET_USER_ZONE
+    cidr: 10.0.30.0/24
+    description: User endpoints
+  edge:
+    interface: opt4
+    vlan: 40
+    alias: NET_EDGE_ZONE
+    cidr: 10.0.40.0/24
+    description: DMZ
+
+hosts_map:
+  SRV_WAZUH_MGR: 10.0.10.5
+  SRV_OPENVAS: 10.0.10.6
+  SRV_AD_DC: 10.0.20.5
+  SRV_EDGE: 10.0.40.5
+
+port_aliases:
+  PORT_WAZUH_AGENT: ["1514", "1515"]
+  PORT_WEB: ["80", "443"]
+  PORT_ADMIN: ["22", "443", "9392"]
+  # SSH and WinRM over HTTPS, used by Ansible to manage every zone
+  PORT_MGMT: ["22", "5986"]
+  # What a domain member needs from a DC. RPC dynamic range is the
+  # Windows default (49152-65535).
+  PORT_AD_TCP: ["53", "88", "135", "389", "445", "464", "636", "3268", "3269", "49152:65535"]
+  PORT_AD_UDP: ["53", "88", "123", "389", "464"]
+
+# Services on the edge host you actually want reachable from outside.
+# Empty means nothing on the DMZ is published.
+edge_published_ports: []

@@ -1,0 +1,41 @@
+---
+- name: "Register custom CDB lists in ossec.conf"
+  ansible.builtin.blockinfile:
+    path: /var/ossec/etc/ossec.conf
+    insertafter: "<rule_dir>etc/rules</rule_dir>"
+    marker: "<!-- {mark} ANSIBLE MANAGED BLOCK CDB LISTS -->"
+    block: |
+      <list>etc/lists/approved_scanners.cdb</list>
+      <list>etc/lists/critical_assets.cdb</list>
+      <list>etc/lists/trusted_internal_hosts.cdb</list>
+      <list>etc/lists/never_block.cdb</list>
+      <list>etc/lists/lab_assets.cdb</list>
+  notify: restart wazuh-manager
+
+- name: "Clean up duplicate remote syslog entries and add Active Response"
+  ansible.builtin.replace:
+    path: /var/ossec/etc/ossec.conf
+    regexp: '<!-- BEGIN ANSIBLE MANAGED BLOCK SYSLOG -->[\s\S]*?<!-- END ANSIBLE MANAGED BLOCK SYSLOG -->'
+    replace: ''
+  notify: restart wazuh-manager
+
+- name: "Add Active Response configuration to ossec.conf"
+  ansible.builtin.blockinfile:
+    path: /var/ossec/etc/ossec.conf
+    insertafter: "<!-- <active-response>"
+    marker: "<!-- {mark} ANSIBLE MANAGED BLOCK ACTIVE RESPONSE -->"
+    block: |
+      <command>
+        <name>opnsense_block</name>
+        <executable>active_response_opnsense_block.py</executable>
+        <timeout_allowed>yes</timeout_allowed>
+      </command>
+
+      <active-response>
+        <command>opnsense_block</command>
+        <location>local</location>
+        <rules_group>soar_candidate</rules_group>
+        <timeout>{{ active_response_block_duration_seconds | default(3600) }}</timeout>
+      </active-response>
+  when: active_response_enabled | bool
+  notify: restart wazuh-manager

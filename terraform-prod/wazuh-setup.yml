@@ -1,0 +1,27 @@
+#cloud-config
+
+hostname: wazuh-manager-01
+
+users:
+  - name: ansible
+    gecos: Ansible Automation User
+    groups:
+      - sudo
+    shell: /bin/bash
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    lock_passwd: true
+    ssh_authorized_keys:
+      - "ssh-ed25519 REPLACE_WITH_YOUR_PUBLIC_KEY"
+
+ssh_pwauth: false
+disable_root: true
+
+package_update: false
+package_upgrade: false
+
+packages:
+  - python3
+  - sudo
+  - openssh-server
+
+final_message: "Minimal bootstrap complete. Continue configuration with Ansible."
